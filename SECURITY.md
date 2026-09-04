@@ -155,23 +155,32 @@ Run on Omarchy:
 
 This removes only the `studio-executor` managed block from Omarchy's `authorized_keys`.
 
-Revoke first, then remove the corresponding private/public key pair and installed endpoint if decommissioning permanently.
+Both revocation commands block **future SSH authentication only**. OpenSSH does not terminate a connection merely because its key was removed from `authorized_keys`. Before treating access as stopped:
+
+1. Revoke the relevant key block.
+2. Exit every active Hlink TUI using that link.
+3. Identify and terminate the exact Hlink-started Hermes process plus its associated SSH or control-master processes on both machines. Do not broadly kill unrelated Hermes or SSH sessions.
+4. Verify no process or connection associated with that link remains.
+
+Then remove the corresponding private/public key pair and installed endpoint if decommissioning permanently.
 
 ## Compromise response
 
 If Omarchy is lost or suspected compromised:
 
 1. Revoke `--side studio` on the remote host.
-2. Remove the remote host's `omarchy-client` public-key block if the admin tool is unavailable.
-3. Rotate the Omarchy-to-remote-host key before reconnecting.
-4. Review recent Hermes sessions and actions.
+2. Terminate any active Hlink-started Hermes and SSH processes for the link.
+3. Remove the remote host's `omarchy-client` public-key block if the admin tool is unavailable.
+4. Rotate the Omarchy-to-remote-host key before reconnecting.
+5. Review recent Hermes sessions and actions.
 
 If the remote Hermes host or its execution key is suspected compromised:
 
 1. Revoke `--side omarchy` on Omarchy.
-2. Remove Omarchy's `studio-executor` public-key block if needed.
-3. Rotate the remote-host-to-Omarchy key.
-4. Review the Omarchy user's shell, file, and authentication logs.
+2. Terminate any active Hlink execution SSH or control-master processes for the link.
+3. Remove Omarchy's `studio-executor` public-key block if needed.
+4. Rotate the remote-host-to-Omarchy key.
+5. Review the Omarchy user's shell, file, and authentication logs.
 
 ## Reporting vulnerabilities
 

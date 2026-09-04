@@ -35,6 +35,8 @@ class DocumentationTests(unittest.TestCase):
                 self.assertIn(value, text)
         self.assertIn("venv/bin/hermes", text)
         self.assertNotIn("--hermes-command", text)
+        self.assertIn("future Omarchy authentication", text)
+        self.assertIn("do **not** terminate already-authenticated", text)
 
     def test_relative_markdown_links_resolve(self) -> None:
         for source in (README, GUIDE, SECURITY):

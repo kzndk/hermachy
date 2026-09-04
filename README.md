@@ -126,7 +126,7 @@ Read [SECURITY.md](SECURITY.md) before installation. The important trust decisio
 
 Both keys are dedicated Ed25519 identities. The client ignores ambient SSH configuration with `ssh -F /dev/null`, uses a forced command on the remote host, disables forwarding, and never grants passwordless sudo.
 
-Immediate revocation:
+Block future SSH authentication (this does not terminate sessions that are already connected):
 
 ```bash
 # On the remote Hermes host: block Omarchy from launching Hlink
@@ -135,6 +135,8 @@ hlink-admin revoke --side studio
 # On Omarchy: block the remote Hermes host from executing locally
 hlink-admin revoke --side omarchy
 ```
+
+After revoking both sides, close every active Hlink TUI and terminate its linked Hermes and SSH processes before treating access as stopped. See [SECURITY.md](SECURITY.md) for the active-session procedure.
 
 ## Development
 

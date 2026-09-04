@@ -476,19 +476,28 @@ Run `hlink` from an interactive terminal. Hlink requests an SSH PTY and the real
 
 ## 13. Revoke access
 
-To stop Omarchy from launching the remote Hermes Agent immediately, run on the remote host:
+To block future Omarchy authentication to the remote Hermes host, run on the remote host:
 
 ```bash
 ~/.local/bin/hlink-admin revoke --side studio
 ```
 
-To stop the remote Hermes host from executing on Omarchy immediately, run on Omarchy:
+To block future remote-host authentication to Omarchy, run on Omarchy:
 
 ```bash
 ~/.local/bin/hlink-admin revoke --side omarchy
 ```
 
-The commands remove only Hlink's marked `authorized_keys` blocks. For permanent removal, revoke first and then delete the corresponding dedicated key pair, JSON configuration, and installed Hlink executables.
+The commands remove only Hlink's marked `authorized_keys` blocks. They do **not** terminate already-authenticated TUI, Hermes, SSH, or persistent control sessions.
+
+After revoking the relevant block:
+
+1. Exit every active Hlink TUI using this link.
+2. On both machines, identify the exact Hlink-started Hermes process and its associated SSH or control-master processes.
+3. Terminate those exact processes without killing unrelated Hermes or SSH sessions.
+4. Verify no process or connection associated with the link remains.
+
+Only then treat access as stopped. For permanent removal, delete the corresponding dedicated key pair, JSON configuration, and installed Hlink executables.
 
 ## 14. Upgrade
 
