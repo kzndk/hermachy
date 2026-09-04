@@ -6,9 +6,9 @@ requires-python = ">=3.9"
 license = {text = "MIT"}
 
 [project.urls]
-Homepage = "https://github.com/MrSlothuus/hlink"
-Repository = "https://github.com/MrSlothuus/hlink"
-Issues = "https://github.com/MrSlothuus/hlink/issues"
+Homepage = "https://github.com/kzndk/hlink"
+Repository = "https://github.com/kzndk/hlink"
+Issues = "https://github.com/kzndk/hlink/issues"
 
 [tool.hermes-link]
 protocol-version = 1
