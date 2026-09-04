@@ -136,7 +136,7 @@ Replace every uppercase placeholder in the rest of this guide with the real valu
 
 ## 4. Verify and record SSH host keys before first Hlink connection
 
-Hlink uses `StrictHostKeyChecking=accept-new`: a previously recorded key is enforced, a previously unseen key is stored, and later key changes are rejected. Because an automatically accepted first key is not independently authenticated, verify and record both keys before running Hlink.
+Hlink uses `StrictHostKeyChecking=yes`. A previously unseen or changed key is rejected, so verify and record both destination keys before running Hlink.
 
 On each destination machine, display its Ed25519 host-key fingerprint locally:
 

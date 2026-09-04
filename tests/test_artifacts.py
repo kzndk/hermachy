@@ -25,8 +25,8 @@ class ArtifactTests(unittest.TestCase):
                     self.assertTrue(stat.S_IMODE(path.stat().st_mode) & stat.S_IXUSR)
 
             cases = [
-                (output / "hlink", ["--version"], "Hermes Link 0.1.2"),
-                (output / "hlink-server", ["--version"], "Hermes Link server 0.1.2"),
+                (output / "hlink", ["--version"], "Hermes Link 0.1.3"),
+                (output / "hlink-server", ["--version"], "Hermes Link server 0.1.3"),
                 (output / "hlink-admin", ["--help"], "Install and revoke Hermes Link"),
             ]
             for executable, args, expected in cases:

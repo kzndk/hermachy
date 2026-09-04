@@ -66,14 +66,14 @@ Its SSH policy includes:
 
 - `BatchMode=yes`
 - `IdentitiesOnly=yes`
-- `StrictHostKeyChecking=accept-new`
+- `StrictHostKeyChecking=yes`
 - an explicit dedicated identity file
 - disabled agent and port forwarding
 - bounded connection timeouts
 
 Safe-executor capability v1 applies equivalent dedicated-identity isolation to Hermes's outbound Omarchy connection.
 
-`accept-new` provides trust on first use and rejects later host-key changes. Verify both destination fingerprints out-of-band before the first connection. Treat a mismatch as a security event; never work around it with `StrictHostKeyChecking=no`.
+`yes` requires the exact destination key to be recorded before the first Hlink connection. Verify both destination fingerprints out-of-band, populate each user's `known_hosts`, and treat either a missing or mismatched key as a security event. Never work around it with `StrictHostKeyChecking=no`.
 
 ## Secrets and authoritative state
 

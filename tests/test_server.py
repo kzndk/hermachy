@@ -177,6 +177,8 @@ class ServerTests(unittest.TestCase):
         argv = build_executor_ssh_argv(config, "/home/u/a; touch /tmp/pwned")
         self.assertEqual(argv[:4], ["ssh", "-T", "-F", "/dev/null"])
         self.assertIn("BatchMode=yes", argv)
+        self.assertIn("StrictHostKeyChecking=yes", argv)
+        self.assertNotIn("StrictHostKeyChecking=accept-new", argv)
         self.assertEqual(argv[-2], "user@host")
         self.assertNotIn("touch /tmp/pwned", argv[-1])
         self.assertIn("python3 -c", argv[-1])

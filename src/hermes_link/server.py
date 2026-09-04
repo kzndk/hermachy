@@ -263,7 +263,7 @@ def build_executor_ssh_argv(config: ServerConfig, cwd: str) -> list[str]:
         "-o",
         "IdentitiesOnly=yes",
         "-o",
-        "StrictHostKeyChecking=accept-new",
+        "StrictHostKeyChecking=yes",
         "-o",
         "ConnectTimeout=8",
         "-o",

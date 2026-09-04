@@ -95,7 +95,7 @@ def build_ssh_argv(config: ClientConfig, request: LaunchRequest) -> list[str]:
         "-o",
         "IdentitiesOnly=yes",
         "-o",
-        "StrictHostKeyChecking=accept-new",
+        "StrictHostKeyChecking=yes",
         "-o",
         "ConnectTimeout=8",
         "-o",
