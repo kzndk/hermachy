@@ -1,275 +1,140 @@
-# Hermes Link
+# Hermes Link (`hlink`)
 
-**The real Hermes TUI, backed by Morpheus, with commands executed on your local Omarchy machine.**
+**Use the real TUI and knowledge of a remote Hermes Agent while terminal, file, and code tools execute on your local Omarchy machine.**
 
-Hermes Link keeps one authoritative Hermes identity on the Mac Studio while making an Omarchy workstation the active terminal and filesystem backend.
+[![Tests](https://github.com/kzndk/hlink/actions/workflows/test.yml/badge.svg)](https://github.com/kzndk/hlink/actions/workflows/test.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-> **Pre-alpha / fail-closed:** Released Hermes builds currently let persistent terminal config override launcher routing, synchronize credential files/skills/cache into SSH backends, and may use ambient SSH identities. Hermes Link will **refuse to launch** unless the installed Hermes build exposes safe-executor capability v1. That capability guarantees launcher routing precedence, disables all remote-state sync and sync-back, and makes production SSH use only Hlink's dedicated key and isolated control socket. Do not bypass this gate. No public release is provided yet.
+Hermes Link connects two machines over Tailscale and OpenSSH:
 
 ```text
-Omarchy `hlink`
-  → Tailscale SSH
-  → real `hermes --tui` on Morpheus
-  → Hermes SSH backend
-  → commands/files/code on Omarchy
+Omarchy workstation
+  `hlink` client
+       │  SSH PTY over Tailscale
+       ▼
+Remote Hermes host
+  real `hermes --tui`
+  memory, skills, sessions, models, credentials
+       │  dedicated SSH execution connection
+       ▼
+Omarchy workstation
+  terminal, files, patches, searches, builds, code execution
 ```
 
-## What you get
+The remote host remains the authoritative Hermes “brain.” Omarchy is the execution machine. Hlink does not clone a Hermes profile or replace the Hermes TUI. The current pre-alpha launches the remote Hermes `default` profile; do not give an untrusted workstation access to a sensitive profile.
 
-- The exact Hermes TUI: same rendering, keys, streaming, overlays, themes, mouse behavior, and terminal resize handling.
-- Morpheus's existing memory, skills, sessions, model credentials, and profile.
-- Terminal commands, file operations, patches, searches, builds, tests, and code execution on Omarchy.
-- With a compatible safe-executor Hermes build, no API/model credential, skill tree, cache, or SQLite profile is copied to Omarchy.
-- Process-local routing that does not change normal Morpheus, Hermes-All, gateway, cron, or Tailscale Serve configuration.
+> [!IMPORTANT]
+> **Current status: public pre-alpha and fail-closed.** Hlink requires a Hermes build that implements **safe-executor capability v1**. Released Hermes versions that can override the requested route, copy profile state into an SSH backend, or use ambient SSH identities are rejected before the TUI starts. Do not bypass this gate. See [Hermes compatibility](#hermes-compatibility).
 
-## Execution boundary
+## What stays where
 
-| Capability | Runs/lives on |
-|---|---|
-| Hermes TUI and agent loop | Mac Studio / Morpheus |
-| Memory, skills, sessions, credentials | Mac Studio / Morpheus |
-| Terminal commands | Omarchy |
-| File read/write/search/patch | Omarchy |
-| Code execution and project builds | Omarchy |
-| Gateway, messaging, cron | Mac Studio / Morpheus |
-| Browser and Computer Use | Mac Studio initially |
+| Capability or data | Remote Hermes host | Omarchy |
+|---|:---:|:---:|
+| Real Hermes TUI and agent loop | ✓ | — |
+| Models and provider credentials | ✓ | — |
+| Memory, skills, sessions, and profile state | ✓ | — |
+| Terminal commands | — | ✓ |
+| File read/write/search/patch | — | ✓ |
+| Builds, tests, and code execution | — | ✓ |
+| Hlink client key | public key only | private key |
+| Hlink execution key | private key | public key only |
 
-## Requirements
+Hlink does not configure passwordless `sudo`, Tailscale Funnel, or a public Internet listener.
 
-### Omarchy
+## Start here
 
-```bash
-sudo pacman -S --needed tailscale openssh python
-sudo systemctl enable --now tailscaled sshd
-sudo tailscale up
-```
+The complete setup guide covers prerequisites, Tailscale/SSH preparation, the two dedicated keys, installation on both machines, diagnostics, usage, verification, upgrades, and revocation:
 
-Complete the Tailscale login. The machine must be online in the same tailnet as Morpheus. Python 3.9 or newer is required; current Omarchy Python satisfies this.
+### **[Configure Omarchy with a remote Hermes Agent →](docs/OMARCHY_REMOTE_HERMES.md)**
 
-### Mac Studio
+Quick outline:
 
-- Working `hermes --tui`
-- Hermes Link safe-executor capability v1 (`HERMES_LINK_CONTROL_VERSION == 1`)
-- OpenSSH Remote Login enabled
-- Tailscale online
-- Python 3.9 or newer
+1. Install Tailscale, OpenSSH, Git, and Python 3.9+ on Omarchy.
+2. Install and configure Hermes on the remote host.
+3. Build Hlink’s three standalone zipapps.
+4. Run `hlink-admin studio-prepare` on the remote host.
+5. Run `hlink-admin omarchy-install` on Omarchy.
+6. Run `hlink-admin studio-finish` on the remote host.
+7. Run `hlink --doctor`, then launch `hlink` from an Omarchy project directory.
 
-## Build and test
-
-From this repository:
+## Build
 
 ```bash
-PYTHONPATH=src python3 -m unittest discover -s tests -v
+git clone https://github.com/kzndk/hlink.git
+cd hlink
 python3 scripts/build_zipapps.py
 ```
 
-Artifacts:
+The reproducible, dependency-free runtime artifacts are:
 
 ```text
-dist/hlink
-dist/hlink-server
-dist/hlink-admin
+dist/hlink          # Omarchy client
+dist/hlink-server   # forced-command endpoint on the remote Hermes host
+dist/hlink-admin    # install and revoke utility
 ```
 
-They are standalone Python zipapps with no third-party runtime dependencies.
-
-## Installation
-
-Installation deliberately has three phases so private keys never cross machines.
-
-### Phase 1 — prepare Morpheus
-
-On the Mac Studio:
-
-```bash
-python3 scripts/build_zipapps.py
-./dist/hlink-admin studio-prepare \
-  --output-dir ./dist/handoff \
-  --admin-artifact ./dist/hlink-admin
-```
-
-This creates or reuses:
-
-```text
-~/.ssh/hlink_to_omarchy
-~/.ssh/hlink_to_omarchy.pub
-./dist/handoff/studio-executor.pub
-```
-
-Only transfer these files to Omarchy:
-
-```text
-dist/hlink
-dist/hlink-admin
-dist/handoff/studio-executor.pub
-```
-
-For Tailscale Taildrop, where `OMARCHY_HOST` is the target's Tailscale hostname:
-
-```bash
-tailscale file cp \
-  dist/hlink \
-  dist/hlink-admin \
-  dist/handoff/studio-executor.pub \
-  OMARCHY_HOST:
-```
-
-On Omarchy, retrieve them into an empty directory:
-
-```bash
-mkdir -p ~/Downloads/hlink-bootstrap
-tailscale file get ~/Downloads/hlink-bootstrap
-cd ~/Downloads/hlink-bootstrap
-chmod +x hlink hlink-admin
-```
-
-### Phase 2 — install the Omarchy endpoint
-
-On Omarchy:
-
-```bash
-./hlink-admin omarchy-install \
-  --artifact ./hlink \
-  --admin-artifact ./hlink-admin \
-  --studio-host morpheus.example-tailnet.ts.net \
-  --studio-user studio-user \
-  --studio-executor-public-key ./studio-executor.pub
-```
-
-This installs:
-
-```text
-~/.local/bin/hlink
-~/.local/bin/hermes-link -> hlink
-~/.local/bin/hlink-admin
-~/.config/hermes-link/client.json
-~/.ssh/hlink_to_morpheus
-~/.ssh/hlink_to_morpheus.pub
-```
-
-It also adds a marked `restrict` entry for Morpheus's execution key to Omarchy's `~/.ssh/authorized_keys`. Unrelated keys are preserved.
-
-Ensure `~/.local/bin` is on `PATH`, then transfer only this public key back to Morpheus:
-
-```bash
-tailscale file cp ~/.ssh/hlink_to_morpheus.pub morpheus:
-```
-
-### Phase 3 — authorize Omarchy on Morpheus
-
-Retrieve the public key on the Studio, then run:
-
-```bash
-mkdir -p ~/Downloads/hlink-inbox
-tailscale file get ~/Downloads/hlink-inbox
-
-./dist/hlink-admin studio-finish \
-  --artifact ./dist/hlink-server \
-  --executor-host OMARCHY_HOST.example-tailnet.ts.net \
-  --executor-user OMARCHY_USER \
-  --client-public-key ~/Downloads/hlink-inbox/hlink_to_morpheus.pub \
-  --hermes-command ~/.local/bin/hermes \
-  --hermes-source-root ~/.hermes/hermes-agent
-```
-
-Use the live Omarchy MagicDNS hostname and the output of `whoami`; do not guess either value.
-
-This installs:
-
-```text
-~/.local/bin/hlink-server
-~/.local/bin/hlink-admin
-~/.config/hermes-link/server.json
-```
-
-It also adds a marked Studio `authorized_keys` entry with:
-
-```text
-restrict,pty,command="/absolute/path/to/hlink-server"
-```
-
-That key can launch Hermes Link with a PTY but cannot obtain a Studio shell or create SSH tunnels.
+Python 3.9 or newer is required.
 
 ## Use
 
-From an Omarchy project directory:
+After completing the setup guide, open a terminal on Omarchy and run:
 
 ```bash
+cd ~/path/to/your/project
 hlink
 ```
 
-Session controls:
+Common session commands:
 
 ```bash
+hlink --doctor
 hlink --continue
 hlink --continue "session name"
 hlink --resume "session-id-or-title"
 hlink --cwd /absolute/omarchy/path
-hermes-link
+hermes-link                         # alias for hlink
 ```
 
-Hermes Link always adds `--no-restore-cwd`, so a resumed Studio session cannot replace the Omarchy directory supplied by the client.
+The interface is the real remote `hermes --tui`; the supplied Omarchy directory is the execution working directory.
 
-## Diagnose
+## Hermes compatibility
 
-On Omarchy:
+Hlink requires the remote Hermes runtime to export:
 
-```bash
-hlink --doctor
+```text
+HERMES_LINK_CONTROL_VERSION=1
 ```
 
-A successful JSON result identifies both sides without exposing key contents:
+Capability v1 is a behavioral contract, not merely a constant. It must guarantee that:
 
-```json
-{
-  "status": "ok",
-  "studio": {
-    "hostname": "Morpheus",
-    "profile": "default"
-  },
-  "executor": {
-    "hostname": "omarchy-host",
-    "user": "local-user",
-    "cwd": "/home/local-user/project",
-    "system": "Linux"
-  }
-}
-```
+- the process-scoped Hlink route overrides persistent terminal configuration;
+- terminal, file, and code-execution tools use the same Omarchy SSH route;
+- remote profile/credential/skill/cache synchronization is disabled;
+- sync-back is disabled;
+- only Hlink’s dedicated execution identity is used;
+- capability probing and TUI launch use the same pinned Hermes venv and source tree;
+- unsafe or malformed routing fails closed.
 
-Common failures:
-
-- **Studio host unavailable:** confirm `tailscale status` on both machines.
-- **Permission denied from Omarchy to Studio:** rerun Phase 3 with the exact Omarchy client `.pub` file.
-- **Permission denied from Studio to Omarchy:** rerun Phase 2 with the exact Studio execution `.pub` file.
-- **Working directory missing:** launch inside an existing Omarchy directory or pass `--cwd`.
-- **Host-key mismatch:** investigate the machine identity. Hermes Link never disables host-key checking.
-- **No TUI/garbled terminal:** launch from an interactive terminal; the client forces a PTY and forwards terminal resize events through OpenSSH.
-- **Missing Hermes Link safe-executor capability:** use a Hermes build that exports `HERMES_LINK_CONTROL_VERSION = 1`, honors process-scoped Hlink routing and `TERMINAL_SYNC_REMOTE_STATE=false`, and isolates the production SSH identity/control socket. Hlink intentionally refuses to start on stock builds.
-
-## Revoke
-
-On the Studio, block Omarchy from launching Hermes Link immediately:
-
-```bash
-hlink-admin revoke --side studio
-```
-
-On Omarchy, block Morpheus from executing commands immediately:
-
-```bash
-hlink-admin revoke --side omarchy
-```
-
-The commands remove only their marked blocks from `authorized_keys`. For full removal, also delete the dedicated `hlink_to_*` key pair, corresponding JSON config, and installed executables after revocation.
+`hlink-server` verifies that the installed Hermes runtime declares capability v1 before launch. `hlink --doctor` then reports the remote host identity, profile, and Hermes version, and validates the Omarchy executor's SSH identity, Linux operating system, and requested working directory. These runtime checks do not independently prove the capability's internal implementation, so use only a tested compatible Hermes build. If the marker or endpoint checks fail, Hlink exits safely. The project will publish a tested compatible-version reference when the upstream capability is available; until then, Hlink is for developers testing a compatible Hermes build.
 
 ## Security
 
-Read [SECURITY.md](SECURITY.md) before enabling the link. The two intentional grants are:
+Read [SECURITY.md](SECURITY.md) before installation. The important trust decision is that:
 
-1. The Omarchy key may start the full Morpheus Hermes TUI, but cannot open an ordinary Studio SSH shell.
-2. The Studio execution key may run non-PTY commands as the normal Omarchy user because that is how Hermes operates locally.
+- the Omarchy client key can start the configured remote Hermes profile; and
+- the remote execution key can run non-interactive commands as the normal Omarchy user.
 
-No passwordless sudo is configured.
+Both keys are dedicated Ed25519 identities. The client ignores ambient SSH configuration with `ssh -F /dev/null`, uses a forced command on the remote host, disables forwarding, and never grants passwordless sudo.
+
+Immediate revocation:
+
+```bash
+# On the remote Hermes host: block Omarchy from launching Hlink
+hlink-admin revoke --side studio
+
+# On Omarchy: block the remote Hermes host from executing locally
+hlink-admin revoke --side omarchy
+```
 
 ## Development
 
@@ -282,7 +147,8 @@ python3 scripts/build_zipapps.py
 ./dist/hlink-admin --help
 ```
 
-Design and plan:
+## Project
 
-- `docs/superpowers/specs/2026-09-04-hermes-link-design.md`
-- `docs/superpowers/plans/2026-09-04-hermes-link.md`
+- Repository: https://github.com/kzndk/hlink
+- Issues: https://github.com/kzndk/hlink/issues
+- License: [MIT](LICENSE)

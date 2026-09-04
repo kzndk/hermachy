@@ -24,9 +24,6 @@ from hermes_link.server import (
 
 class ServerTests(unittest.TestCase):
     def make_config(self, root: Path, mode: int = 0o600) -> tuple[Path, ServerConfig]:
-        hermes = root / "hermes"
-        hermes.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
-        hermes.chmod(0o700)
         key = root / "id_ed25519"
         key.write_text("private", encoding="utf-8")
         key.chmod(0o600)
@@ -35,6 +32,9 @@ class ServerTests(unittest.TestCase):
         runtime_python.parent.mkdir(parents=True)
         runtime_python.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
         runtime_python.chmod(0o700)
+        hermes = runtime_python.parent / "hermes"
+        hermes.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        hermes.chmod(0o700)
         payload = {
             "hermes_command": str(hermes),
             "hermes_source_root": str(source_root),
@@ -54,6 +54,20 @@ class ServerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             path, expected = self.make_config(Path(directory))
             self.assertEqual(load_server_config(path), expected)
+
+    def test_rejects_command_not_bound_to_probed_hermes_runtime(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            path, _ = self.make_config(root)
+            unrelated = root / "unrelated-hermes"
+            unrelated.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            unrelated.chmod(0o700)
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            payload["hermes_command"] = str(unrelated)
+            path.write_text(json.dumps(payload), encoding="utf-8")
+
+            with self.assertRaisesRegex(ServerError, "same Hermes runtime"):
+                load_server_config(path)
 
     def test_rejects_config_with_group_or_other_permissions(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -100,7 +114,7 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(env["TERMINAL_SSH_PERSISTENT"], "true")
         self.assertEqual(env["TERMINAL_SYNC_REMOTE_STATE"], "false")
         self.assertEqual(env["HLINK_REQUIRE_SAFE_EXECUTOR"], "1")
-        self.assertNotIn("PYTHONPATH", env)
+        self.assertEqual(env["PYTHONPATH"], "/opt/hermes-agent")
         self.assertNotIn("PYTHONHOME", env)
 
     def test_builds_hermes_argv_for_each_action(self) -> None:
@@ -108,19 +122,50 @@ class ServerTests(unittest.TestCase):
         cases = [
             (
                 LaunchRequest("/p"),
-                ["/h", "--profile=default", "--tui", "--no-restore-cwd"],
+                [
+                    "/opt/hermes-agent/venv/bin/python",
+                    "-c",
+                    mock.ANY,
+                    "--profile=default",
+                    "--tui",
+                    "--no-restore-cwd",
+                ],
             ),
             (
                 LaunchRequest("/p", "continue"),
-                ["/h", "--profile=default", "--tui", "--no-restore-cwd", "--continue"],
+                [
+                    "/opt/hermes-agent/venv/bin/python",
+                    "-c",
+                    mock.ANY,
+                    "--profile=default",
+                    "--tui",
+                    "--no-restore-cwd",
+                    "--continue",
+                ],
             ),
             (
                 LaunchRequest("/p", "continue", "name"),
-                ["/h", "--profile=default", "--tui", "--no-restore-cwd", "--continue=name"],
+                [
+                    "/opt/hermes-agent/venv/bin/python",
+                    "-c",
+                    mock.ANY,
+                    "--profile=default",
+                    "--tui",
+                    "--no-restore-cwd",
+                    "--continue=name",
+                ],
             ),
             (
                 LaunchRequest("/p", "resume", "id"),
-                ["/h", "--profile=default", "--tui", "--no-restore-cwd", "--resume=id"],
+                [
+                    "/opt/hermes-agent/venv/bin/python",
+                    "-c",
+                    mock.ANY,
+                    "--profile=default",
+                    "--tui",
+                    "--no-restore-cwd",
+                    "--resume=id",
+                ],
             ),
         ]
         for request, expected in cases:
@@ -174,8 +219,17 @@ class ServerTests(unittest.TestCase):
             with mock.patch(
                 "hermes_link.server.subprocess.run",
                 return_value=subprocess.CompletedProcess([], 0, "1\n", ""),
-            ):
+            ) as capability_probe:
                 verify_safe_executor_capability(config)
+            self.assertEqual(
+                capability_probe.call_args.args[0][0],
+                str(config.hermes_source_root / "venv" / "bin" / "python"),
+            )
+            self.assertEqual(
+                capability_probe.call_args.kwargs["env"]["PYTHONPATH"],
+                str(config.hermes_source_root),
+            )
+            self.assertNotIn("PYTHONHOME", capability_probe.call_args.kwargs["env"])
 
     def test_doctor_rejects_mismatched_executor_identity(self) -> None:
         config = ServerConfig(Path("/h"), "host", "omarchy-user", Path("/key"))
@@ -237,8 +291,12 @@ class ServerTests(unittest.TestCase):
         argv = execute.call_args.args[1]
         child_env = execute.call_args.args[2]
         self.assertEqual(argv, build_hermes_argv(config, request))
-        self.assertEqual(execute.call_args.args[0], str(config.hermes_command))
+        self.assertEqual(
+            execute.call_args.args[0],
+            str(config.hermes_source_root / "venv" / "bin" / "python"),
+        )
         self.assertEqual(child_env["TERMINAL_CWD"], request.cwd)
+        self.assertEqual(child_env["PYTHONPATH"], str(config.hermes_source_root))
 
 
 if __name__ == "__main__":

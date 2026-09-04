@@ -12,7 +12,6 @@ import os
 from pathlib import Path
 import re
 import shlex
-import shutil
 import stat
 import struct
 import subprocess
@@ -416,21 +415,37 @@ def studio_finish(args: argparse.Namespace) -> int:
         executor_key, "hermes-link-studio-executor"
     )
 
-    if args.hermes_command:
-        hermes_command = Path(args.hermes_command).expanduser()
-    else:
-        detected = shutil.which("hermes")
-        if not detected:
-            raise AdminError("Hermes executable not found; pass --hermes-command")
-        hermes_command = Path(detected)
-    if not hermes_command.is_absolute() or not hermes_command.is_file() or not os.access(
-        hermes_command, os.X_OK
-    ):
-        raise AdminError(f"Hermes command is missing or not executable: {hermes_command}")
-
     hermes_source_root = Path(args.hermes_source_root).expanduser()
     if not hermes_source_root.is_absolute() or not hermes_source_root.is_dir():
         raise AdminError(f"Hermes source root is missing: {hermes_source_root}")
+    runtime_bin = hermes_source_root / "venv" / "bin"
+    hermes_command = runtime_bin / "hermes"
+    runtime_python = runtime_bin / "python"
+    for runtime_path, label in (
+        (hermes_command, "Hermes runtime command"),
+        (runtime_python, "Hermes runtime Python"),
+    ):
+        if not runtime_path.is_file() or not os.access(runtime_path, os.X_OK):
+            raise AdminError(f"{label} is missing or not executable: {runtime_path}")
+    if args.hermes_command:
+        requested_command = Path(args.hermes_command).expanduser()
+        if (
+            not requested_command.is_absolute()
+            or not requested_command.is_file()
+            or not os.access(requested_command, os.X_OK)
+        ):
+            raise AdminError(
+                f"Hermes command is missing or not executable: {requested_command}"
+            )
+        try:
+            same_runtime = os.path.samefile(requested_command, hermes_command)
+        except OSError as exc:
+            raise AdminError(f"cannot verify Hermes runtime command: {exc}") from exc
+        if not same_runtime:
+            raise AdminError(
+                "--hermes-command must identify the same Hermes runtime as "
+                "--hermes-source-root/venv/bin/hermes"
+            )
 
     host = _safe_endpoint(args.executor_host, "executor_host")
     user = _safe_endpoint(args.executor_user, "executor_user")
@@ -509,7 +524,10 @@ def parser() -> argparse.ArgumentParser:
     finish.add_argument("--executor-port", type=int, default=22)
     finish.add_argument("--client-public-key", required=True)
     finish.add_argument("--executor-key")
-    finish.add_argument("--hermes-command")
+    finish.add_argument(
+        "--hermes-command",
+        help="optional compatibility check; must be the source root's venv/bin/hermes",
+    )
     finish.add_argument("--hermes-source-root", default="~/.hermes/hermes-agent")
     finish.add_argument("--bin-dir")
     finish.set_defaults(handler=studio_finish)

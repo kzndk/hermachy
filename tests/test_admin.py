@@ -194,16 +194,21 @@ class AdminTests(unittest.TestCase):
             home.mkdir()
             artifact = root / "hlink-server"
             artifact.write_bytes(b"#!/usr/bin/env python3\n")
-            hermes = root / "hermes"
-            hermes.write_bytes(b"#!/bin/sh\n")
-            hermes.chmod(0o755)
+
             executor_key, _ = ensure_ed25519_key(
                 home / ".ssh" / "hlink_to_omarchy", "studio-executor"
             )
             client_pub = root / "client.pub"
             client_pub.write_text(valid_public_key("client"), encoding="utf-8")
             hermes_source_root = root / "hermes-agent"
-            (hermes_source_root / "venv" / "bin").mkdir(parents=True)
+            runtime_bin = hermes_source_root / "venv" / "bin"
+            runtime_bin.mkdir(parents=True)
+            hermes = runtime_bin / "hermes"
+            hermes.write_bytes(b"#!/bin/sh\n")
+            hermes.chmod(0o755)
+            runtime_python = runtime_bin / "python"
+            runtime_python.write_bytes(b"#!/bin/sh\n")
+            runtime_python.chmod(0o755)
             authorized = home / ".ssh" / "authorized_keys"
             authorized.write_text("ssh-ed25519 AAAA unrelated\n", encoding="utf-8")
             args = [
@@ -212,7 +217,6 @@ class AdminTests(unittest.TestCase):
                 "--executor-host", "omarchy.example-tailnet.ts.net",
                 "--executor-user", "omarchy-user",
                 "--client-public-key", str(client_pub),
-                "--hermes-command", str(hermes),
                 "--hermes-source-root", str(hermes_source_root),
             ]
             with mock.patch.dict(os.environ, {"HOME": str(home)}, clear=False):
@@ -227,7 +231,48 @@ class AdminTests(unittest.TestCase):
             config_path = home / ".config" / "hermes-link" / "server.json"
             config = json.loads(config_path.read_text())
             self.assertEqual(config["executor_user"], "omarchy-user")
+            self.assertEqual(config["hermes_command"], str(hermes))
             self.assertEqual(stat.S_IMODE(config_path.stat().st_mode), 0o600)
+
+    def test_studio_finish_rejects_command_outside_probed_runtime(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            home = root / "home"
+            home.mkdir()
+            artifact = root / "hlink-server"
+            artifact.write_bytes(b"#!/usr/bin/env python3\n")
+            unrelated_hermes = root / "other-hermes"
+            unrelated_hermes.write_bytes(b"#!/bin/sh\n")
+            unrelated_hermes.chmod(0o755)
+            ensure_ed25519_key(home / ".ssh" / "hlink_to_omarchy", "studio-executor")
+            client_pub = root / "client.pub"
+            client_pub.write_text(valid_public_key("client"), encoding="utf-8")
+            runtime_bin = root / "hermes-agent" / "venv" / "bin"
+            runtime_bin.mkdir(parents=True)
+            runtime_hermes = runtime_bin / "hermes"
+            runtime_hermes.write_bytes(b"#!/bin/sh\n")
+            runtime_hermes.chmod(0o755)
+            runtime_python = runtime_bin / "python"
+            runtime_python.write_bytes(b"#!/bin/sh\n")
+            runtime_python.chmod(0o755)
+            args = [
+                "studio-finish",
+                "--artifact", str(artifact),
+                "--executor-host", "omarchy.example-tailnet.ts.net",
+                "--executor-user", "omarchy-user",
+                "--client-public-key", str(client_pub),
+                "--hermes-command", str(unrelated_hermes),
+                "--hermes-source-root", str(root / "hermes-agent"),
+            ]
+
+            with mock.patch.dict(os.environ, {"HOME": str(home)}, clear=False), mock.patch(
+                "sys.stderr", new_callable=io.StringIO
+            ) as error:
+                self.assertEqual(main(args), 2)
+
+            self.assertIn("same Hermes runtime", error.getvalue())
+            authorized = home / ".ssh" / "authorized_keys"
+            self.assertFalse(authorized.exists())
 
 
 if __name__ == "__main__":

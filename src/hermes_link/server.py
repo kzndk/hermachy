@@ -21,6 +21,7 @@ from .protocol import LaunchRequest, ProtocolError, parse_forced_command
 
 DEFAULT_CONFIG_PATH = Path("~/.config/hermes-link/server.json")
 SAFE_EXECUTOR_CAPABILITY_VERSION = "1"
+_HERMES_ENTRYPOINT = "from hermes_cli.main import main; raise SystemExit(main())"
 _REQUIRED_CONFIG_FIELDS = frozenset(
     {
         "hermes_command",
@@ -124,13 +125,38 @@ def load_server_config(path: Path) -> ServerConfig:
     if type(port) is not int or not 1 <= port <= 65535:
         raise ServerError("executor_port must be an integer between 1 and 65535")
 
-    if not hermes.is_file() or not os.access(hermes, os.X_OK):
-        raise ServerError(f"Hermes command is missing or not executable: {hermes}")
     if not hermes_source_root.is_dir():
         raise ServerError(f"Hermes source root is missing: {hermes_source_root}")
+    runtime_hermes = hermes_source_root / "venv" / "bin" / "hermes"
+    if not runtime_hermes.is_file() or not os.access(runtime_hermes, os.X_OK):
+        raise ServerError(
+            f"Hermes runtime command is missing or not executable: {runtime_hermes}"
+        )
+    if not hermes.is_file() or not os.access(hermes, os.X_OK):
+        raise ServerError(f"Hermes command is missing or not executable: {hermes}")
+    try:
+        same_runtime = os.path.samefile(hermes, runtime_hermes)
+    except OSError as exc:
+        raise ServerError(f"cannot verify Hermes runtime command: {exc}") from exc
+    if not same_runtime:
+        raise ServerError(
+            "Hermes command must belong to the same Hermes runtime used for "
+            "safe-executor capability verification"
+        )
     _require_private_file(identity, "executor SSH identity")
 
     return ServerConfig(hermes, host, user, identity, port, hermes_source_root)
+
+
+def _runtime_python_env(
+    config: ServerConfig, base_env: Mapping[str, str] | None = None
+) -> dict[str, str]:
+    """Pin Python imports to the same source tree as the selected venv."""
+
+    env = dict(os.environ if base_env is None else base_env)
+    env.pop("PYTHONHOME", None)
+    env["PYTHONPATH"] = str(config.hermes_source_root)
+    return env
 
 
 def build_hermes_env(
@@ -140,14 +166,15 @@ def build_hermes_env(
 ) -> dict[str, str]:
     """Create child-only settings that route Hermes tools to Omarchy."""
 
-    env = dict(os.environ if base_env is None else base_env)
-    env.pop("PYTHONPATH", None)
-    env.pop("PYTHONHOME", None)
+    env = _runtime_python_env(config, base_env)
     env.pop("SSH_ORIGINAL_COMMAND", None)
     env.pop("HLINK_SERVER_CONFIG", None)
     env.update(
         {
             "HERMES_TUI": "1",
+            # Pin imports to the same source tree whose venv is used for the
+            # capability probe and launch. Never inherit an ambient path.
+            "PYTHONPATH": str(config.hermes_source_root),
             "TERMINAL_ENV": "ssh",
             "TERMINAL_CWD": request.cwd,
             "TERMINAL_SSH_HOST": config.executor_host,
@@ -168,7 +195,7 @@ def build_hermes_env(
 def verify_safe_executor_capability(config: ServerConfig) -> None:
     """Fail closed unless Hermes supports Hlink's complete execution boundary."""
 
-    python = config.hermes_source_root / "venv" / "bin" / "python"
+    python = _runtime_python(config)
     if not python.is_file() or not os.access(python, os.X_OK):
         raise ServerError(f"Hermes runtime Python is missing: {python}")
     probe = (
@@ -179,6 +206,7 @@ def verify_safe_executor_capability(config: ServerConfig) -> None:
         completed = subprocess.run(
             [str(python), "-c", probe],
             cwd=config.hermes_source_root,
+            env=_runtime_python_env(config),
             check=False,
             capture_output=True,
             text=True,
@@ -200,7 +228,9 @@ def build_hermes_argv(config: ServerConfig, request: LaunchRequest) -> list[str]
     """Build the direct, non-shell Hermes TUI invocation."""
 
     argv = [
-        str(config.hermes_command),
+        str(_runtime_python(config)),
+        "-c",
+        _HERMES_ENTRYPOINT,
         "--profile=default",
         "--tui",
         "--no-restore-cwd",
@@ -254,7 +284,9 @@ def run_doctor(config: ServerConfig, request: LaunchRequest) -> int:
 
     try:
         hermes_check = subprocess.run(
-            [str(config.hermes_command), "--version"],
+            [str(_runtime_python(config)), "-c", _HERMES_ENTRYPOINT, "--version"],
+            cwd=config.hermes_source_root,
+            env=_runtime_python_env(config),
             check=False,
             capture_output=True,
             text=True,
@@ -303,6 +335,12 @@ def run_doctor(config: ServerConfig, request: LaunchRequest) -> int:
             )
         )
         return 1
+
+
+def _runtime_python(config: ServerConfig) -> Path:
+    """Return the only Python runtime allowed to probe and launch Hermes."""
+
+    return config.hermes_source_root / "venv" / "bin" / "python"
 
 
 def _validate_executor_report(
