@@ -4,7 +4,7 @@
 
 Hermes Link keeps one authoritative Hermes identity on the Mac Studio while making an Omarchy workstation the active terminal and filesystem backend.
 
-> **Pre-alpha / fail-closed:** Released Hermes builds currently synchronize credential files, skills, and cache into SSH backends. Hermes Link will **refuse to launch** unless the installed Hermes build exposes no-sync capability v1 and honors `TERMINAL_SYNC_REMOTE_STATE=false`. Do not bypass this gate. No public release is provided yet.
+> **Pre-alpha / fail-closed:** Released Hermes builds currently let persistent terminal config override launcher routing, synchronize credential files/skills/cache into SSH backends, and may use ambient SSH identities. Hermes Link will **refuse to launch** unless the installed Hermes build exposes safe-executor capability v1. That capability guarantees launcher routing precedence, disables all remote-state sync and sync-back, and makes production SSH use only Hlink's dedicated key and isolated control socket. Do not bypass this gate. No public release is provided yet.
 
 ```text
 Omarchy `hlink`
@@ -19,7 +19,7 @@ Omarchy `hlink`
 - The exact Hermes TUI: same rendering, keys, streaming, overlays, themes, mouse behavior, and terminal resize handling.
 - Morpheus's existing memory, skills, sessions, model credentials, and profile.
 - Terminal commands, file operations, patches, searches, builds, tests, and code execution on Omarchy.
-- With a compatible no-sync Hermes build, no API/model credential, skill tree, cache, or SQLite profile is copied to Omarchy.
+- With a compatible safe-executor Hermes build, no API/model credential, skill tree, cache, or SQLite profile is copied to Omarchy.
 - Process-local routing that does not change normal Morpheus, Hermes-All, gateway, cron, or Tailscale Serve configuration.
 
 ## Execution boundary
@@ -49,7 +49,7 @@ Complete the Tailscale login. The machine must be online in the same tailnet as 
 ### Mac Studio
 
 - Working `hermes --tui`
-- Hermes SSH no-sync capability v1 (`REMOTE_STATE_SYNC_CONTROL_VERSION == 1`)
+- Hermes Link safe-executor capability v1 (`HERMES_LINK_CONTROL_VERSION == 1`)
 - OpenSSH Remote Login enabled
 - Tailscale online
 - Python 3.9 or newer
@@ -244,7 +244,7 @@ Common failures:
 - **Working directory missing:** launch inside an existing Omarchy directory or pass `--cwd`.
 - **Host-key mismatch:** investigate the machine identity. Hermes Link never disables host-key checking.
 - **No TUI/garbled terminal:** launch from an interactive terminal; the client forces a PTY and forwards terminal resize events through OpenSSH.
-- **Missing safe SSH no-sync capability:** use a Hermes build that exports `REMOTE_STATE_SYNC_CONTROL_VERSION = 1` and honors `TERMINAL_SYNC_REMOTE_STATE=false`. Hlink intentionally refuses to start on stock builds that would copy state.
+- **Missing Hermes Link safe-executor capability:** use a Hermes build that exports `HERMES_LINK_CONTROL_VERSION = 1`, honors process-scoped Hlink routing and `TERMINAL_SYNC_REMOTE_STATE=false`, and isolates the production SSH identity/control socket. Hlink intentionally refuses to start on stock builds.
 
 ## Revoke
 

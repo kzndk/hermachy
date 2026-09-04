@@ -1,15 +1,14 @@
 #!/usr/bin/env python3
-"""Build dependency-free Hermes Link zipapp executables."""
+"""Build dependency-free, reproducible Hermes Link zipapps."""
 
 from __future__ import annotations
 
 import argparse
+import contextlib
 import os
 from pathlib import Path
-import shutil
-import tempfile
-from typing import Sequence
-import zipapp
+from typing import Iterable, Sequence
+import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE_PACKAGE = ROOT / "src" / "hermes_link"
@@ -18,23 +17,23 @@ ENTRYPOINTS = {
     "hlink-server": ROOT / "entrypoints" / "server" / "__main__.py",
     "hlink-admin": ROOT / "entrypoints" / "admin" / "__main__.py",
 }
-ZIP_MIN_EPOCH = 315532800  # 1980-01-01, the oldest timestamp supported by ZIP.
+SHEBANG = b"#!/usr/bin/env python3\n"
+FIXED_ZIP_TIMESTAMP = (1980, 1, 1, 0, 0, 0)
 
 
-def _source_epoch() -> int:
-    raw = os.environ.get("SOURCE_DATE_EPOCH", str(ZIP_MIN_EPOCH))
-    try:
-        value = int(raw)
-    except ValueError as exc:
-        raise ValueError("SOURCE_DATE_EPOCH must be an integer") from exc
-    return max(value, ZIP_MIN_EPOCH)
+def _archive_sources(name: str) -> Iterable[tuple[str, Path]]:
+    yield "__main__.py", ENTRYPOINTS[name]
+    for source in sorted(SOURCE_PACKAGE.rglob("*.py")):
+        relative = source.relative_to(SOURCE_PACKAGE).as_posix()
+        yield f"hermes_link/{relative}", source
 
 
-def _normalize_tree_timestamps(root: Path, epoch: int) -> None:
-    paths = sorted(root.rglob("*"), key=lambda item: (len(item.parts), str(item)), reverse=True)
-    for path in paths:
-        os.utime(path, (epoch, epoch), follow_symlinks=False)
-    os.utime(root, (epoch, epoch))
+def _zip_info(archive_name: str) -> zipfile.ZipInfo:
+    info = zipfile.ZipInfo(archive_name, date_time=FIXED_ZIP_TIMESTAMP)
+    info.create_system = 3
+    info.compress_type = zipfile.ZIP_DEFLATED
+    info.external_attr = (0o100644 & 0xFFFF) << 16
+    return info
 
 
 def build_one(name: str, output_dir: Path) -> Path:
@@ -42,27 +41,33 @@ def build_one(name: str, output_dir: Path) -> Path:
         raise ValueError(f"unknown Hermes Link artifact: {name}")
     output_dir.mkdir(parents=True, exist_ok=True)
     target = output_dir / name
-    temporary_target = output_dir / f".{name}.{os.getpid()}.tmp"
-    if temporary_target.exists():
-        temporary_target.unlink()
+    temporary = output_dir / f".{name}.{os.getpid()}.tmp"
+    with contextlib.suppress(FileNotFoundError):
+        temporary.unlink()
 
-    with tempfile.TemporaryDirectory(prefix=f"hlink-{name}-") as directory:
-        staging = Path(directory)
-        shutil.copytree(
-            SOURCE_PACKAGE,
-            staging / "hermes_link",
-            ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "*.pyo"),
-        )
-        shutil.copy2(ENTRYPOINTS[name], staging / "__main__.py")
-        _normalize_tree_timestamps(staging, _source_epoch())
-        zipapp.create_archive(
-            staging,
-            target=temporary_target,
-            interpreter="/usr/bin/env python3",
-            compressed=True,
-        )
-    temporary_target.chmod(0o755)
-    os.replace(temporary_target, target)
+    try:
+        with temporary.open("wb") as stream:
+            stream.write(SHEBANG)
+            with zipfile.ZipFile(
+                stream,
+                mode="w",
+                compression=zipfile.ZIP_DEFLATED,
+                compresslevel=9,
+            ) as archive:
+                for archive_name, source in _archive_sources(name):
+                    archive.writestr(
+                        _zip_info(archive_name),
+                        source.read_bytes(),
+                        compress_type=zipfile.ZIP_DEFLATED,
+                        compresslevel=9,
+                    )
+            stream.flush()
+            os.fsync(stream.fileno())
+        temporary.chmod(0o755)
+        os.replace(temporary, target)
+    finally:
+        with contextlib.suppress(FileNotFoundError):
+            temporary.unlink()
     return target
 
 

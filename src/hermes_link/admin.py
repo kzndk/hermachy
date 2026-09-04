@@ -6,10 +6,12 @@ import argparse
 import base64
 import binascii
 import contextlib
+import fcntl
 import json
 import os
 from pathlib import Path
 import re
+import shlex
 import shutil
 import stat
 import struct
@@ -105,38 +107,63 @@ def upsert_marked_block(
         clean_lines.append(line)
     block = "\n".join([begin, *clean_lines, end]) + "\n"
 
-    try:
-        text = path.read_text(encoding="utf-8")
-    except FileNotFoundError:
-        text = ""
-    except (OSError, UnicodeDecodeError) as exc:
-        raise AdminError(f"cannot read managed file {path}: {exc}") from exc
-
-    region = _managed_region(text, marker)
-    if region is None:
-        separator = "" if not text or text.endswith(("\n", "\r")) else "\n"
-        updated = text + separator + block
-    else:
-        start, finish = region
-        updated = text[:start] + block + text[finish:]
-    atomic_write(path, updated.encode("utf-8"), mode)
+    with _managed_file_lock(path):
+        text = _read_managed_text(path)
+        region = _managed_region(text, marker)
+        if region is None:
+            separator = "" if not text or text.endswith(("\n", "\r")) else "\n"
+            updated = text + separator + block
+        else:
+            start, finish = region
+            updated = text[:start] + block + text[finish:]
+        _write_managed_text_if_unchanged(path, text, updated, mode)
 
 
 def remove_marked_block(path: Path, marker: str, mode: int = 0o600) -> bool:
     """Remove one managed block, preserving unrelated content exactly."""
 
+    with _managed_file_lock(path):
+        text = _read_managed_text(path)
+        region = _managed_region(text, marker)
+        if region is None:
+            return False
+        start, finish = region
+        updated = text[:start] + text[finish:]
+        _write_managed_text_if_unchanged(path, text, updated, mode)
+        return True
+
+
+@contextlib.contextmanager
+def _managed_file_lock(path: Path):
+    """Serialize Hlink edits through a stable sidecar lock."""
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = path.with_name(path.name + ".hlink.lock")
+    descriptor = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
     try:
-        text = path.read_text(encoding="utf-8")
+        os.fchmod(descriptor, 0o600)
+        fcntl.flock(descriptor, fcntl.LOCK_EX)
+        yield
+    finally:
+        fcntl.flock(descriptor, fcntl.LOCK_UN)
+        os.close(descriptor)
+
+
+def _read_managed_text(path: Path) -> str:
+    try:
+        return path.read_text(encoding="utf-8")
     except FileNotFoundError:
-        return False
+        return ""
     except (OSError, UnicodeDecodeError) as exc:
         raise AdminError(f"cannot read managed file {path}: {exc}") from exc
-    region = _managed_region(text, marker)
-    if region is None:
-        return False
-    start, finish = region
-    atomic_write(path, (text[:start] + text[finish:]).encode("utf-8"), mode)
-    return True
+
+
+def _write_managed_text_if_unchanged(
+    path: Path, original: str, updated: str, mode: int
+) -> None:
+    if _read_managed_text(path) != original:
+        raise AdminError(f"managed file changed concurrently: {path}")
+    atomic_write(path, updated.encode("utf-8"), mode)
 
 
 def _read_ssh_string(blob: bytes, offset: int) -> tuple[bytes, int]:
@@ -212,7 +239,19 @@ def ensure_ed25519_key(path: Path, comment: str) -> tuple[Path, Path]:
         raise AdminError(f"SSH key pair was not created at {path}")
     path.chmod(0o600)
     public.chmod(0o644)
-    _read_public_key(public, comment)
+    stored = _read_public_key(public, comment)
+    derived = subprocess.run(
+        ["ssh-keygen", "-y", "-f", str(path)],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=15,
+    )
+    if derived.returncode != 0:
+        raise AdminError(f"invalid or unreadable Ed25519 private key: {path}")
+    derived_key = normalize_ed25519_public_key(derived.stdout, comment)
+    if derived_key.split()[1] != stored.split()[1]:
+        raise AdminError(f"SSH private/public key mismatch at {path}")
     return path, public
 
 
@@ -250,6 +289,13 @@ def _home_paths() -> tuple[Path, Path, Path]:
     return home / ".ssh", home / ".local" / "bin", home / ".config" / "hermes-link"
 
 
+def _absolute_runtime_path(value: str, label: str) -> Path:
+    path = Path(value).expanduser()
+    if not path.is_absolute():
+        raise AdminError(f"{label} must resolve to an absolute path")
+    return path
+
+
 def studio_prepare(args: argparse.Namespace) -> int:
     ssh_dir, bin_dir, _ = _home_paths()
     admin_path = None
@@ -279,8 +325,8 @@ def studio_prepare(args: argparse.Namespace) -> int:
 
 def omarchy_install(args: argparse.Namespace) -> int:
     ssh_dir, default_bin, default_config = _home_paths()
-    bin_dir = Path(args.bin_dir).expanduser() if args.bin_dir else default_bin
-    config_dir = Path(args.config_dir).expanduser() if args.config_dir else default_config
+    bin_dir = _absolute_runtime_path(args.bin_dir, "bin_dir") if args.bin_dir else default_bin
+    config_dir = default_config
     _ensure_private_directory(ssh_dir)
     _ensure_private_directory(config_dir)
     bin_dir.mkdir(parents=True, exist_ok=True)
@@ -294,7 +340,11 @@ def omarchy_install(args: argparse.Namespace) -> int:
         admin_path = bin_dir / "hlink-admin"
         install_executable(Path(args.admin_artifact).expanduser(), admin_path)
 
-    key_path = Path(args.client_key).expanduser() if args.client_key else ssh_dir / "hlink_to_morpheus"
+    key_path = (
+        _absolute_runtime_path(args.client_key, "client_key")
+        if args.client_key
+        else ssh_dir / "hlink_to_morpheus"
+    )
     private, public = ensure_ed25519_key(key_path, "hermes-link-omarchy-client")
     executor_key = _read_public_key(
         Path(args.studio_executor_public_key).expanduser(),
@@ -338,13 +388,14 @@ def _quote_authorized_command(path: Path) -> str:
     text = str(path)
     if "\n" in text or "\r" in text or "\x00" in text:
         raise AdminError("server executable path contains control characters")
-    return text.replace("\\", "\\\\").replace('"', '\\"')
+    shell_word = shlex.quote(text)
+    return shell_word.replace("\\", "\\\\").replace('"', '\\"')
 
 
 def studio_finish(args: argparse.Namespace) -> int:
     ssh_dir, default_bin, default_config = _home_paths()
-    bin_dir = Path(args.bin_dir).expanduser() if args.bin_dir else default_bin
-    config_dir = Path(args.config_dir).expanduser() if args.config_dir else default_config
+    bin_dir = _absolute_runtime_path(args.bin_dir, "bin_dir") if args.bin_dir else default_bin
+    config_dir = default_config
     _ensure_private_directory(ssh_dir)
     _ensure_private_directory(config_dir)
     bin_dir.mkdir(parents=True, exist_ok=True)
@@ -354,14 +405,16 @@ def studio_finish(args: argparse.Namespace) -> int:
     install_executable(artifact, server_path)
 
     executor_key = (
-        Path(args.executor_key).expanduser()
+        _absolute_runtime_path(args.executor_key, "executor_key")
         if args.executor_key
         else ssh_dir / "hlink_to_omarchy"
     )
     executor_public = executor_key.with_name(executor_key.name + ".pub")
     if not executor_key.is_file() or not executor_public.is_file():
         raise AdminError("Studio execution key is missing; run studio-prepare first")
-    executor_key.chmod(0o600)
+    executor_key, executor_public = ensure_ed25519_key(
+        executor_key, "hermes-link-studio-executor"
+    )
 
     if args.hermes_command:
         hermes_command = Path(args.hermes_command).expanduser()
@@ -447,7 +500,6 @@ def parser() -> argparse.ArgumentParser:
     omarchy.add_argument("--admin-artifact")
     omarchy.add_argument("--client-key")
     omarchy.add_argument("--bin-dir")
-    omarchy.add_argument("--config-dir")
     omarchy.set_defaults(handler=omarchy_install)
 
     finish = commands.add_parser("studio-finish", help="install and authorize the Studio server")
@@ -460,7 +512,6 @@ def parser() -> argparse.ArgumentParser:
     finish.add_argument("--hermes-command")
     finish.add_argument("--hermes-source-root", default="~/.hermes/hermes-agent")
     finish.add_argument("--bin-dir")
-    finish.add_argument("--config-dir")
     finish.set_defaults(handler=studio_finish)
 
     revoke_parser = commands.add_parser("revoke", help="remove the relevant authorized key")

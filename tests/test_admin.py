@@ -5,13 +5,16 @@ import os
 from pathlib import Path
 import stat
 import struct
+import subprocess
 import tempfile
 import unittest
 from unittest import mock
 
 from hermes_link.admin import (
     AdminError,
+    _quote_authorized_command,
     atomic_write,
+    ensure_ed25519_key,
     install_executable,
     main,
     normalize_ed25519_public_key,
@@ -58,6 +61,8 @@ class AdminTests(unittest.TestCase):
             self.assertTrue(second.startswith(unrelated))
             self.assertEqual(second.count("# >>> hermes-link:executor >>>"), 1)
             self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
+            lock_path = path.with_name(path.name + ".hlink.lock")
+            self.assertEqual(stat.S_IMODE(lock_path.stat().st_mode), 0o600)
 
     def test_marked_block_replacement_changes_only_managed_region(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -80,6 +85,15 @@ class AdminTests(unittest.TestCase):
             with self.assertRaises(AdminError):
                 upsert_marked_block(path, "x", ["new"], 0o600)
 
+    def test_managed_update_rejects_concurrent_external_change(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "authorized_keys"
+            with mock.patch(
+                "hermes_link.admin._read_managed_text",
+                side_effect=["ssh-ed25519 AAAA original\n", "ssh-ed25519 AAAA changed\n"],
+            ), self.assertRaisesRegex(AdminError, "changed concurrently"):
+                upsert_marked_block(path, "x", ["managed"], 0o600)
+
     def test_validates_and_normalizes_ed25519_public_key(self) -> None:
         normalized = normalize_ed25519_public_key(valid_public_key("old"), "new-comment")
         self.assertTrue(normalized.startswith("ssh-ed25519 "))
@@ -87,6 +101,28 @@ class AdminTests(unittest.TestCase):
         for bad in ["", "ssh-rsa AAAA x", "ssh-ed25519 !!!! x", "ssh-ed25519 eA== x"]:
             with self.subTest(bad=bad), self.assertRaises(AdminError):
                 normalize_ed25519_public_key(bad, "new")
+
+    def test_existing_private_and_public_keys_must_match(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            private, public = ensure_ed25519_key(root / "first", "first")
+            _, unrelated_public = ensure_ed25519_key(root / "second", "second")
+            public.write_bytes(unrelated_public.read_bytes())
+            with self.assertRaisesRegex(AdminError, "mismatch"):
+                ensure_ed25519_key(private, "first")
+
+    def test_authorized_command_shell_quotes_metacharacter_path(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            executable = Path(directory) / "hlink server; printf INJECTED"
+            executable.write_text("#!/bin/sh\nprintf 'SAFE\\n'\n", encoding="utf-8")
+            executable.chmod(0o700)
+            command = _quote_authorized_command(executable)
+            completed = subprocess.run(
+                ["/bin/sh", "-c", command], capture_output=True, text=True, check=False
+            )
+            self.assertEqual(completed.returncode, 0)
+            self.assertEqual(completed.stdout, "SAFE\n")
+            self.assertNotIn("INJECTED", completed.stdout)
 
     def test_studio_prepare_generates_key_and_handoff_public_key(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -161,12 +197,8 @@ class AdminTests(unittest.TestCase):
             hermes = root / "hermes"
             hermes.write_bytes(b"#!/bin/sh\n")
             hermes.chmod(0o755)
-            executor_key = home / ".ssh" / "hlink_to_omarchy"
-            executor_key.parent.mkdir()
-            executor_key.write_text("private", encoding="utf-8")
-            executor_key.chmod(0o600)
-            executor_key.with_name(executor_key.name + ".pub").write_text(
-                valid_public_key(), encoding="utf-8"
+            executor_key, _ = ensure_ed25519_key(
+                home / ".ssh" / "hlink_to_omarchy", "studio-executor"
             )
             client_pub = root / "client.pub"
             client_pub.write_text(valid_public_key("client"), encoding="utf-8")

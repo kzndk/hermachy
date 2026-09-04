@@ -1,6 +1,6 @@
 [project]
 name = "hermes-link"
-version = "0.1.0"
+version = "0.1.1"
 description = "Remote Hermes TUI with local SSH execution"
 requires-python = ">=3.9"
 license = {text = "MIT"}

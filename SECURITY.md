@@ -6,7 +6,7 @@ Hermes Link deliberately joins two machines into one agent execution boundary. R
 
 Stock Hermes SSH backends currently synchronize declared credential files, skills, and cache to the remote executor and can synchronize changes back during teardown. Hermes Link does not accept that behavior.
 
-Before launching either the TUI or `--doctor`, `hlink-server` imports the installed Hermes SSH backend in its own runtime and requires `REMOTE_STATE_SYNC_CONTROL_VERSION == 1`. It then sets both `TERMINAL_SYNC_REMOTE_STATE=false` and `HLINK_REQUIRE_NO_REMOTE_STATE_SYNC=1` for the Hermes child process. Missing, mismatched, or broken capability detection stops the launch before Hermes initializes the SSH environment.
+Before launching either the TUI or `--doctor`, `hlink-server` imports the installed Hermes SSH backend in its own runtime and requires `HERMES_LINK_CONTROL_VERSION == 1`. It then sets both `TERMINAL_SYNC_REMOTE_STATE=false` and `HLINK_REQUIRE_SAFE_EXECUTOR=1` for the Hermes child process. The capability contract also requires process-scoped Hlink routing to override persistent terminal config and the production SSH backend to use only Hlink's dedicated key and isolated control socket. Missing, mismatched, or broken capability detection stops the launch before Hermes initializes the SSH environment.
 
 Do not remove or bypass this check. A compatible Hermes build is a hard prerequisite.
 
@@ -60,7 +60,7 @@ The client and server use:
 
 ## Secrets
 
-With the no-sync capability active, Hermes model/provider credentials, memory, skills, cache, and session database remain on the Studio. The Omarchy client configuration contains only the Studio hostname, username, port, and local path to its dedicated private key.
+With the safe-executor capability active, Hermes model/provider credentials, memory, skills, cache, and session database remain on the Studio. The Omarchy client configuration contains only the Studio hostname, username, port, and local path to its dedicated private key.
 
 The doctor response does not print identity paths or key material.
 

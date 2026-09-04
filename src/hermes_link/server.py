@@ -8,6 +8,7 @@ import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
+import posixpath
 import shlex
 import socket
 import stat
@@ -19,7 +20,7 @@ from . import __version__
 from .protocol import LaunchRequest, ProtocolError, parse_forced_command
 
 DEFAULT_CONFIG_PATH = Path("~/.config/hermes-link/server.json")
-NO_SYNC_CAPABILITY_VERSION = "1"
+SAFE_EXECUTOR_CAPABILITY_VERSION = "1"
 _REQUIRED_CONFIG_FIELDS = frozenset(
     {
         "hermes_command",
@@ -154,24 +155,25 @@ def build_hermes_env(
             "TERMINAL_SSH_PORT": str(config.executor_port),
             "TERMINAL_SSH_KEY": str(config.executor_identity_file),
             "TERMINAL_SSH_PERSISTENT": "true",
-            # Stock Hermes currently syncs credentials, skills, and cache to an
-            # SSH backend. Hermes Link requires the explicit no-sync capability.
+            # Stock Hermes currently rewrites terminal env from persistent
+            # config, syncs state into SSH backends, and can use ambient keys.
+            # Hermes Link requires the comprehensive safe-executor capability.
             "TERMINAL_SYNC_REMOTE_STATE": "false",
-            "HLINK_REQUIRE_NO_REMOTE_STATE_SYNC": "1",
+            "HLINK_REQUIRE_SAFE_EXECUTOR": "1",
         }
     )
     return env
 
 
-def verify_no_sync_capability(config: ServerConfig) -> None:
-    """Fail closed unless this Hermes build supports disabling remote state sync."""
+def verify_safe_executor_capability(config: ServerConfig) -> None:
+    """Fail closed unless Hermes supports Hlink's complete execution boundary."""
 
     python = config.hermes_source_root / "venv" / "bin" / "python"
     if not python.is_file() or not os.access(python, os.X_OK):
         raise ServerError(f"Hermes runtime Python is missing: {python}")
     probe = (
-        "from tools.environments.ssh import REMOTE_STATE_SYNC_CONTROL_VERSION;"
-        "print(REMOTE_STATE_SYNC_CONTROL_VERSION)"
+        "from tools.environments.ssh import HERMES_LINK_CONTROL_VERSION;"
+        "print(HERMES_LINK_CONTROL_VERSION)"
     )
     try:
         completed = subprocess.run(
@@ -183,26 +185,34 @@ def verify_no_sync_capability(config: ServerConfig) -> None:
             timeout=15,
         )
     except (OSError, subprocess.SubprocessError) as exc:
-        raise ServerError(f"cannot verify Hermes no-sync capability: {exc}") from exc
-    if completed.returncode != 0 or completed.stdout.strip() != NO_SYNC_CAPABILITY_VERSION:
+        raise ServerError(f"cannot verify Hermes safe-executor capability: {exc}") from exc
+    if (
+        completed.returncode != 0
+        or completed.stdout.strip() != SAFE_EXECUTOR_CAPABILITY_VERSION
+    ):
         raise ServerError(
-            "installed Hermes lacks safe SSH no-sync capability v1; "
-            "refusing to copy credentials/skills/cache to the executor"
+            "installed Hermes lacks Hermes Link safe-executor capability v1; "
+            "refusing an unsafe or misrouted execution session"
         )
 
 
 def build_hermes_argv(config: ServerConfig, request: LaunchRequest) -> list[str]:
     """Build the direct, non-shell Hermes TUI invocation."""
 
-    argv = [str(config.hermes_command), "--tui", "--no-restore-cwd"]
+    argv = [
+        str(config.hermes_command),
+        "--profile=default",
+        "--tui",
+        "--no-restore-cwd",
+    ]
     if request.action == "continue":
-        argv.append("--continue")
-        if request.session:
-            argv.append(request.session)
+        argv.append(
+            f"--continue={request.session}" if request.session else "--continue"
+        )
     elif request.action == "resume":
         if request.session is None:
             raise ServerError("resume request is missing a session")
-        argv.extend(["--resume", request.session])
+        argv.append(f"--resume={request.session}")
     elif request.action not in {"new", "doctor"}:
         raise ServerError(f"cannot launch action: {request.action}")
     return argv
@@ -269,8 +279,7 @@ def run_doctor(config: ServerConfig, request: LaunchRequest) -> int:
                 f"{executor_check.returncode}: {detail}"
             )
         executor = json.loads(executor_check.stdout)
-        if not isinstance(executor, dict):
-            raise ServerError("Omarchy identity probe returned a non-object response")
+        _validate_executor_report(config, request, executor)
 
         report = {
             "status": "ok",
@@ -296,6 +305,24 @@ def run_doctor(config: ServerConfig, request: LaunchRequest) -> int:
         return 1
 
 
+def _validate_executor_report(
+    config: ServerConfig, request: LaunchRequest, executor: Any
+) -> None:
+    if not isinstance(executor, dict):
+        raise ServerError("Omarchy identity probe returned a non-object response")
+    required = {"hostname", "user", "cwd", "system"}
+    if set(executor) != required:
+        raise ServerError("Omarchy identity probe returned unexpected fields")
+    if any(not isinstance(executor[field], str) or not executor[field] for field in required):
+        raise ServerError("Omarchy identity probe returned invalid field values")
+    if executor["user"] != config.executor_user:
+        raise ServerError("Omarchy identity probe returned the wrong user")
+    if executor["system"] != "Linux":
+        raise ServerError("executor is not Linux/Omarchy")
+    if posixpath.normpath(executor["cwd"]) != posixpath.normpath(request.cwd):
+        raise ServerError("Omarchy identity probe returned the wrong working directory")
+
+
 def has_interactive_tty() -> bool:
     """Return whether SSH allocated the PTY required by the real Hermes TUI."""
 
@@ -319,7 +346,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         request = parse_forced_command(os.environ.get("SSH_ORIGINAL_COMMAND"))
         config = load_server_config(_server_config_path())
-        verify_no_sync_capability(config)
+        verify_safe_executor_capability(config)
         if request.action == "doctor":
             return run_doctor(config, request)
         if not has_interactive_tty():

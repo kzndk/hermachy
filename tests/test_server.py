@@ -18,7 +18,7 @@ from hermes_link.server import (
     load_server_config,
     main,
     run_doctor,
-    verify_no_sync_capability,
+    verify_safe_executor_capability,
 )
 
 
@@ -99,25 +99,28 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(env["TERMINAL_SSH_KEY"], "/keys/executor")
         self.assertEqual(env["TERMINAL_SSH_PERSISTENT"], "true")
         self.assertEqual(env["TERMINAL_SYNC_REMOTE_STATE"], "false")
-        self.assertEqual(env["HLINK_REQUIRE_NO_REMOTE_STATE_SYNC"], "1")
+        self.assertEqual(env["HLINK_REQUIRE_SAFE_EXECUTOR"], "1")
         self.assertNotIn("PYTHONPATH", env)
         self.assertNotIn("PYTHONHOME", env)
 
     def test_builds_hermes_argv_for_each_action(self) -> None:
         config = ServerConfig(Path("/h"), "host", "user", Path("/key"))
         cases = [
-            (LaunchRequest("/p"), ["/h", "--tui", "--no-restore-cwd"]),
+            (
+                LaunchRequest("/p"),
+                ["/h", "--profile=default", "--tui", "--no-restore-cwd"],
+            ),
             (
                 LaunchRequest("/p", "continue"),
-                ["/h", "--tui", "--no-restore-cwd", "--continue"],
+                ["/h", "--profile=default", "--tui", "--no-restore-cwd", "--continue"],
             ),
             (
                 LaunchRequest("/p", "continue", "name"),
-                ["/h", "--tui", "--no-restore-cwd", "--continue", "name"],
+                ["/h", "--profile=default", "--tui", "--no-restore-cwd", "--continue=name"],
             ),
             (
                 LaunchRequest("/p", "resume", "id"),
-                ["/h", "--tui", "--no-restore-cwd", "--resume", "id"],
+                ["/h", "--profile=default", "--tui", "--no-restore-cwd", "--resume=id"],
             ),
         ]
         for request, expected in cases:
@@ -134,7 +137,7 @@ class ServerTests(unittest.TestCase):
         self.assertIn("python3 -c", argv[-1])
 
     def test_doctor_reports_both_sides(self) -> None:
-        config = ServerConfig(Path("/h"), "host", "user", Path("/key"))
+        config = ServerConfig(Path("/h"), "host", "omarchy-user", Path("/key"))
         executor = {"hostname": "omarchy", "user": "omarchy-user", "cwd": "/home/u/p", "system": "Linux"}
         completions = [
             subprocess.CompletedProcess([], 0, "Hermes Agent v0.21.0\n", ""),
@@ -154,7 +157,7 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(report["executor"], executor)
         self.assertNotIn("identity", json.dumps(report).lower())
 
-    def test_no_sync_capability_fails_closed(self) -> None:
+    def test_safe_executor_capability_fails_closed(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path, config = self.make_config(Path(directory))
             del path
@@ -165,14 +168,34 @@ class ServerTests(unittest.TestCase):
             for completed in failures:
                 with self.subTest(completed=completed), mock.patch(
                     "hermes_link.server.subprocess.run", return_value=completed
-                ), self.assertRaisesRegex(ServerError, "no-sync"):
-                    verify_no_sync_capability(config)
+                ), self.assertRaisesRegex(ServerError, "safe-executor"):
+                    verify_safe_executor_capability(config)
 
             with mock.patch(
                 "hermes_link.server.subprocess.run",
                 return_value=subprocess.CompletedProcess([], 0, "1\n", ""),
             ):
-                verify_no_sync_capability(config)
+                verify_safe_executor_capability(config)
+
+    def test_doctor_rejects_mismatched_executor_identity(self) -> None:
+        config = ServerConfig(Path("/h"), "host", "omarchy-user", Path("/key"))
+        bad_reports = [
+            {"hostname": "o", "user": "other", "cwd": "/p", "system": "Linux"},
+            {"hostname": "o", "user": "omarchy-user", "cwd": "/wrong", "system": "Linux"},
+            {"hostname": "o", "user": "omarchy-user", "cwd": "/p", "system": "Darwin"},
+            {"hostname": "o", "user": "omarchy-user", "cwd": "/p"},
+        ]
+        for report in bad_reports:
+            completions = [
+                subprocess.CompletedProcess([], 0, "Hermes Agent v0.21.0\n", ""),
+                subprocess.CompletedProcess([], 0, json.dumps(report), ""),
+            ]
+            output = io.StringIO()
+            with self.subTest(report=report), mock.patch(
+                "hermes_link.server.subprocess.run", side_effect=completions
+            ), mock.patch("sys.stdout", output):
+                self.assertEqual(run_doctor(config, LaunchRequest("/p", "doctor")), 1)
+            self.assertEqual(json.loads(output.getvalue())["status"], "error")
 
     def test_main_requires_forced_command(self) -> None:
         error = io.StringIO()
@@ -191,7 +214,7 @@ class ServerTests(unittest.TestCase):
             with mock.patch.dict(os.environ, env, clear=True), mock.patch(
                 "hermes_link.server.has_interactive_tty", return_value=False
             ), mock.patch(
-                "hermes_link.server.verify_no_sync_capability", return_value=None
+                "hermes_link.server.verify_safe_executor_capability", return_value=None
             ):
                 self.assertEqual(main([]), 2)
 
@@ -207,7 +230,7 @@ class ServerTests(unittest.TestCase):
             with mock.patch.dict(os.environ, env, clear=True), mock.patch(
                 "hermes_link.server.has_interactive_tty", return_value=True
             ), mock.patch(
-                "hermes_link.server.verify_no_sync_capability", return_value=None
+                "hermes_link.server.verify_safe_executor_capability", return_value=None
             ), mock.patch("hermes_link.server.os.execvpe", side_effect=RuntimeError("stop")) as execute:
                 with self.assertRaisesRegex(RuntimeError, "stop"):
                     main([])

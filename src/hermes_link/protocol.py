@@ -77,6 +77,8 @@ def _validate_payload(payload: Any) -> LaunchRequest:
         session = _validate_text(
             payload["session"], "session", maximum=MAX_SESSION_CHARS
         )
+        if session.startswith("-"):
+            raise ProtocolError("session must not begin with '-'")
 
     if action in {"new", "doctor"} and has_session:
         raise ProtocolError(f"action {action!r} does not accept a session")
@@ -146,7 +148,13 @@ def decode_request(token: str) -> LaunchRequest:
         )
     except ProtocolError:
         raise
-    except (binascii.Error, UnicodeDecodeError, json.JSONDecodeError) as exc:
+    except (
+        binascii.Error,
+        UnicodeDecodeError,
+        json.JSONDecodeError,
+        RecursionError,
+        OverflowError,
+    ) as exc:
         raise ProtocolError("request token is not valid encoded JSON") from exc
 
     return _validate_payload(payload)

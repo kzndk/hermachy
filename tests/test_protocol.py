@@ -77,6 +77,8 @@ class ProtocolTests(unittest.TestCase):
             {"v": 1, "cwd": "/tmp", "action": "resume", "session": ""},
             {"v": 1, "cwd": "/tmp", "action": "continue", "session": 3},
             {"v": 1, "cwd": "/tmp", "action": "continue", "session": "x\n"},
+            {"v": 1, "cwd": "/tmp", "action": "continue", "session": "--yolo"},
+            {"v": 1, "cwd": "/tmp", "action": "resume", "session": "-p"},
         ]
         for payload in payloads:
             with self.subTest(payload=payload), self.assertRaises(ProtocolError):
@@ -90,6 +92,12 @@ class ProtocolTests(unittest.TestCase):
     def test_rejects_oversized_token(self) -> None:
         token = "A" * (MAX_TOKEN_BYTES + 1)
         with self.assertRaisesRegex(ProtocolError, "large"):
+            decode_request(token)
+
+    def test_rejects_pathologically_deep_json_without_traceback(self) -> None:
+        raw = ("[" * 1100 + "]" * 1100).encode("utf-8")
+        token = base64.urlsafe_b64encode(raw).rstrip(b"=").decode("ascii")
+        with self.assertRaises(ProtocolError):
             decode_request(token)
 
     def test_constructor_validation_runs_during_encoding(self) -> None:
