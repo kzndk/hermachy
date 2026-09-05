@@ -8,6 +8,7 @@ import tempfile
 import unittest
 
 from scripts.build_zipapps import build_all
+from hermes_link import __version__
 
 
 class ArtifactTests(unittest.TestCase):
@@ -15,9 +16,11 @@ class ArtifactTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory)
             artifacts = build_all(output)
+            self.assertTrue((output / 'tui/entry.mjs').is_file())
+            self.assertTrue((output / 'tui/PROVENANCE.json').is_file())
             self.assertEqual(
                 [path.name for path in artifacts],
-                ["hlink", "hlink-server", "hlink-admin"],
+                ["hlink", "hlink-server", "hlink-admin", "hlink-gateway"],
             )
             for path in artifacts:
                 with self.subTest(path=path):
@@ -25,8 +28,8 @@ class ArtifactTests(unittest.TestCase):
                     self.assertTrue(stat.S_IMODE(path.stat().st_mode) & stat.S_IXUSR)
 
             cases = [
-                (output / "hlink", ["--version"], "Hermes Link 0.1.3"),
-                (output / "hlink-server", ["--version"], "Hermes Link server 0.1.3"),
+                (output / "hlink", ["--version"], f"Hermes Link {__version__}"),
+                (output / "hlink-server", ["--version"], f"Hermes Link server {__version__}"),
                 (output / "hlink-admin", ["--help"], "Install and revoke Hermes Link"),
             ]
             for executable, args, expected in cases:
@@ -65,7 +68,7 @@ class ArtifactTests(unittest.TestCase):
                 hashes.append(
                     [
                         hashlib.sha256((output / name).read_bytes()).hexdigest()
-                        for name in ("hlink", "hlink-server", "hlink-admin")
+                        for name in ("hlink", "hlink-server", "hlink-admin", "hlink-gateway")
                     ]
                 )
         self.assertEqual(hashes[0], hashes[1])

@@ -1,6 +1,6 @@
 # Hermes Link (`hlink`)
 
-**Use the real TUI and knowledge of a remote Hermes Agent while terminal, file, and code tools execute on your local Omarchy machine.**
+**Render the native Hermes TUI locally, connect to a remote Hermes Agent, and execute terminal, file, and code tools on your Omarchy machine.**
 
 [![Tests](https://github.com/kzndk/hlink/actions/workflows/test.yml/badge.svg)](https://github.com/kzndk/hlink/actions/workflows/test.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
@@ -9,11 +9,11 @@ Hermes Link connects two machines over Tailscale and OpenSSH:
 
 ```text
 Omarchy workstation
-  `hlink` client
-       │  SSH PTY over Tailscale
+  `hlink` client + native TUI
+       │  SSH JSON-RPC over Tailscale
        ▼
 Remote Hermes host
-  real `hermes --tui`
+  `tui_gateway.entry` + Hermes Agent
   memory, skills, sessions, models, credentials
        │  dedicated SSH execution connection
        ▼
@@ -24,7 +24,7 @@ Omarchy workstation
 The remote host remains the authoritative Hermes “brain.” Omarchy is the execution machine. Hlink does not clone a Hermes profile or replace the Hermes TUI. The current pre-alpha launches the remote Hermes `default` profile; do not give an untrusted workstation access to a sensitive profile.
 
 > [!IMPORTANT]
-> **Current status: public pre-alpha and fail-closed.** Hlink requires a Hermes build that implements **safe-executor capability v1**. Released Hermes versions that can override the requested route, copy profile state into an SSH backend, or use ambient SSH identities are rejected before the TUI starts. Do not bypass this gate. See [Hermes compatibility](#hermes-compatibility).
+> **Current status: public pre-alpha and fail-closed.** Hlink requires a Hermes build that implements **safe-executor capability v2**. Released Hermes versions that can override the requested route, copy profile state into an SSH backend, or use ambient SSH identities are rejected before the TUI starts. Do not bypass this gate. See [Hermes compatibility](#hermes-compatibility).
 
 ## What stays where
 
@@ -49,9 +49,9 @@ The complete setup guide covers prerequisites, Tailscale/SSH preparation, the tw
 
 Quick outline:
 
-1. Install Tailscale, OpenSSH, Git, and Python 3.9+ on Omarchy.
+1. Install Tailscale, OpenSSH, Git, and Python 3.9+, and Node.js on Omarchy.
 2. Install and configure Hermes on the remote host.
-3. Build Hlink’s three standalone zipapps.
+3. Build Hlink’s four standalone zipapps and bundled native TUI.
 4. Run `hlink-admin studio-prepare` on the remote host.
 5. Run `hlink-admin omarchy-install` on Omarchy.
 6. Run `hlink-admin studio-finish` on the remote host.
@@ -71,9 +71,12 @@ The reproducible, dependency-free runtime artifacts are:
 dist/hlink          # Omarchy client
 dist/hlink-server   # forced-command endpoint on the remote Hermes host
 dist/hlink-admin    # install and revoke utility
+dist/hlink-gateway  # local stdio-to-SSH transport
+dist/tui/           # renderer, provenance, and license
 ```
 
-Python 3.9 or newer is required.
+Python 3.9 or newer is required. The Omarchy client also requires Node.js.
+The build verifies the bundled renderer and parser against `tui/PROVENANCE.json`.
 
 ## Use
 
@@ -95,17 +98,17 @@ hlink --cwd /absolute/omarchy/path
 hermes-link                         # alias for hlink
 ```
 
-The interface is the real remote `hermes --tui`; the supplied Omarchy directory is the execution working directory.
+The native TUI renders locally; the remote Hermes gateway owns the agent and sessions. The supplied Omarchy directory is the execution working directory. Startup checks the remote runtime and executor before launching the renderer.
 
 ## Hermes compatibility
 
 Hlink requires the remote Hermes runtime to export:
 
 ```text
-HERMES_LINK_CONTROL_VERSION=1
+HERMES_LINK_CONTROL_VERSION=2
 ```
 
-Capability v1 is a behavioral contract, not merely a constant. It must guarantee that:
+Capability v2 includes the local TUI gateway contract and preserves the v1 execution boundary. It is a behavioral contract, not merely a constant. It must guarantee that:
 
 - the process-scoped Hlink route overrides persistent terminal configuration;
 - terminal, file, and code-execution tools use the same Omarchy SSH route;
@@ -115,7 +118,7 @@ Capability v1 is a behavioral contract, not merely a constant. It must guarantee
 - capability probing and TUI launch use the same pinned Hermes venv and source tree;
 - unsafe or malformed routing fails closed.
 
-`hlink-server` verifies that the installed Hermes runtime declares capability v1 before launch. `hlink --doctor` then reports the remote host identity, profile, and Hermes version, and validates the Omarchy executor's SSH identity, Linux operating system, and requested working directory. These runtime checks do not independently prove the capability's internal implementation, so use only a tested compatible Hermes build. If the marker or endpoint checks fail, Hlink exits safely. The project will publish a tested compatible-version reference when the upstream capability is available; until then, Hlink is for developers testing a compatible Hermes build.
+`hlink-server` verifies that the installed Hermes runtime declares capability v2 before launch. `hlink --doctor` then reports the remote host identity, profile, and Hermes version, and validates the Omarchy executor's SSH identity, Linux operating system, and requested working directory. These runtime checks do not independently prove the capability's internal implementation, so use only a tested compatible Hermes build. If the marker or endpoint checks fail, Hlink exits safely. The project will publish a tested compatible-version reference when the upstream capability is available; until then, Hlink is for developers testing a compatible Hermes build.
 
 ## Security
 

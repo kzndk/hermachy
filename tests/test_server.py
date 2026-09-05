@@ -19,6 +19,7 @@ from hermes_link.server import (
     main,
     run_doctor,
     verify_safe_executor_capability,
+    SAFE_EXECUTOR_CAPABILITY_VERSION,
 )
 
 
@@ -210,7 +211,9 @@ class ServerTests(unittest.TestCase):
             del path
             failures = [
                 subprocess.CompletedProcess([], 1, "", "missing"),
-                subprocess.CompletedProcess([], 0, "2\n", ""),
+                subprocess.CompletedProcess([], 0, "1\n", ""),
+                subprocess.CompletedProcess([], 0, "999\n", ""),
+                subprocess.CompletedProcess([], 1, SAFE_EXECUTOR_CAPABILITY_VERSION, "failed import"),
             ]
             for completed in failures:
                 with self.subTest(completed=completed), mock.patch(
@@ -220,7 +223,7 @@ class ServerTests(unittest.TestCase):
 
             with mock.patch(
                 "hermes_link.server.subprocess.run",
-                return_value=subprocess.CompletedProcess([], 0, "1\n", ""),
+                return_value=subprocess.CompletedProcess([], 0, SAFE_EXECUTOR_CAPABILITY_VERSION + "\n", ""),
             ) as capability_probe:
                 verify_safe_executor_capability(config)
             self.assertEqual(

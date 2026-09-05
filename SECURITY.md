@@ -6,9 +6,9 @@ Hermes Link deliberately joins a remote Hermes host and an Omarchy workstation i
 
 Some Hermes SSH backends synchronize declared credential files, skills, and cache to the remote executor and can synchronize changes back during teardown. Hlink does not accept that behavior.
 
-Before launching either the TUI or `--doctor`, `hlink-server` imports the installed Hermes SSH backend and requires `HERMES_LINK_CONTROL_VERSION == 1`. Capability probing, version diagnostics, and the TUI launch all use the same `hermes_source_root/venv/bin/python`, with `PYTHONPATH` pinned to that source root; an independently configured wrapper cannot select a different Hermes installation. Hlink then starts Hermes with `TERMINAL_SYNC_REMOTE_STATE=false` and `HLINK_REQUIRE_SAFE_EXECUTOR=1`.
+Before launching either the TUI or `--doctor`, `hlink-server` imports the installed Hermes SSH backend and requires `HERMES_LINK_CONTROL_VERSION == "2"`. Capability probing, version diagnostics, and the TUI launch all use the same `hermes_source_root/venv/bin/python`, with `PYTHONPATH` pinned to that source root; an independently configured wrapper cannot select a different Hermes installation. Hlink then starts Hermes with `TERMINAL_SYNC_REMOTE_STATE=false` and `HLINK_REQUIRE_SAFE_EXECUTOR=1`.
 
-Safe-executor capability v1 must guarantee all of the following:
+Safe-executor capability v2 must guarantee all of the following:
 
 - the process-scoped Hlink route wins over `.env`, `config.yaml`, managed configuration, session restoration, and cached environments;
 - terminal, file, and code-execution tools use the same Omarchy SSH route;
@@ -71,13 +71,13 @@ Its SSH policy includes:
 - disabled agent and port forwarding
 - bounded connection timeouts
 
-Safe-executor capability v1 applies equivalent dedicated-identity isolation to Hermes's outbound Omarchy connection.
+Safe-executor capability v2 applies equivalent dedicated-identity isolation to Hermes's outbound Omarchy connection.
 
 `yes` requires the exact destination key to be recorded before the first Hlink connection. Verify both destination fingerprints out-of-band, populate each user's `known_hosts`, and treat either a missing or mismatched key as a security event. Never work around it with `StrictHostKeyChecking=no`.
 
 ## Secrets and authoritative state
 
-With safe-executor capability v1 active, these stay on the remote Hermes host:
+With safe-executor capability v2 active, these stay on the remote Hermes host:
 
 - model and provider credentials;
 - `.env`, `auth.json`, and credential pools;

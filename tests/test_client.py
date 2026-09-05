@@ -14,6 +14,8 @@ from hermes_link.client import (
     load_client_config,
     main,
     parse_args,
+    check_remote,
+    resolve_session,
 )
 from hermes_link.protocol import decode_request
 
@@ -124,7 +126,7 @@ class ClientTests(unittest.TestCase):
             with self.assertRaises(ClientError):
                 build_request(parse_args(["--cwd", str(missing)]), Path("/elsewhere"))
 
-    def test_main_runs_ssh_and_returns_its_status(self) -> None:
+    def test_main_reports_remote_check_failure(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             config_path = self.write_config(root)
@@ -133,11 +135,49 @@ class ClientTests(unittest.TestCase):
             ), mock.patch("hermes_link.client.subprocess.run") as run:
                 run.return_value = subprocess.CompletedProcess([], 17)
                 result = main(["--doctor", "--cwd", directory])
-        self.assertEqual(result, 17)
+        self.assertEqual(result, 2)
         called_argv = run.call_args.args[0]
         request = decode_request(called_argv[-1].split(" ", 1)[1])
         self.assertEqual(request.action, "doctor")
         self.assertFalse(run.call_args.kwargs["check"])
+        self.assertGreater(run.call_args.kwargs["timeout"], 0)
+
+    def test_check_remote_rejects_invalid_success_responses(self) -> None:
+        config = ClientConfig('host', 'user', Path('/key'))
+        for response in ['null', '[]', '{}', '{"status":"error"}', 'bad json']:
+            with self.subTest(response=response), mock.patch(
+                'hermes_link.client.subprocess.run',
+                return_value=subprocess.CompletedProcess([], 0, response, ''),
+            ), self.assertRaises(ClientError):
+                check_remote(config, '/workspace')
+
+    def test_bad_session_response_is_a_client_error(self) -> None:
+        from hermes_link.protocol import LaunchRequest
+        config = ClientConfig('host', 'user', Path('/key'))
+        for response in ['null', '[]', '{}', '{"session":null}']:
+            with self.subTest(response=response), mock.patch(
+                'hermes_link.client.subprocess.run',
+                return_value=subprocess.CompletedProcess([], 0, response, ''),
+            ), self.assertRaises(ClientError):
+                resolve_session(config, LaunchRequest('/workspace', 'resolve'))
+
+    def test_failed_startup_check_does_not_launch_ui(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = self.write_config(Path(directory))
+            with mock.patch.dict(os.environ, {'HLINK_CLIENT_CONFIG': str(path)}), mock.patch(
+                'hermes_link.client.check_remote', side_effect=ClientError('incompatible runtime')
+            ), mock.patch('hermes_link.client.prepare_local_ui') as prepare:
+                self.assertEqual(main([]), 2)
+                prepare.assert_not_called()
+
+    def test_cwd_symlink_is_canonical_for_executor_check(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            real = root / 'real'
+            real.mkdir()
+            (root / 'link').symlink_to(real, target_is_directory=True)
+            request = build_request(parse_args(['--cwd', str(root / 'link')]), root)
+            self.assertEqual(request.cwd, str(real.resolve()))
 
     def test_main_fails_before_ssh_when_identity_is_missing(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

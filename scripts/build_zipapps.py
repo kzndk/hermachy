@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import hashlib
+import json
 import os
 from pathlib import Path
 from typing import Iterable, Sequence
@@ -16,6 +18,7 @@ ENTRYPOINTS = {
     "hlink": ROOT / "entrypoints" / "client" / "__main__.py",
     "hlink-server": ROOT / "entrypoints" / "server" / "__main__.py",
     "hlink-admin": ROOT / "entrypoints" / "admin" / "__main__.py",
+    "hlink-gateway": ROOT / "entrypoints" / "gateway" / "__main__.py",
 }
 SHEBANG = b"#!/usr/bin/env python3\n"
 FIXED_ZIP_TIMESTAMP = (1980, 1, 1, 0, 0, 0)
@@ -72,7 +75,20 @@ def build_one(name: str, output_dir: Path) -> Path:
 
 
 def build_all(output_dir: Path) -> list[Path]:
-    return [build_one(name, output_dir) for name in ENTRYPOINTS]
+    # Ship the renderer with the same parser revision, not just the zipapps.
+    assets = {name: (ROOT / "tui" / name).read_bytes()
+              for name in ("entry.mjs", "PROVENANCE.json", "LICENSE")}
+    provenance = json.loads(assets["PROVENANCE.json"])
+    for name, data in (("entry.mjs", assets["entry.mjs"]),
+                       ("hermes_parser.py", (SOURCE_PACKAGE / "hermes_parser.py").read_bytes())):
+        if hashlib.sha256(data).hexdigest() != provenance["assets"][name]:
+            raise ValueError(f"TUI provenance checksum mismatch: {name}")
+    artifacts = [build_one(name, output_dir) for name in ENTRYPOINTS]
+    target = output_dir / "tui"
+    target.mkdir(parents=True, exist_ok=True)
+    for name, data in assets.items():
+        (target / name).write_bytes(data)
+    return artifacts
 
 
 def main(argv: Sequence[str] | None = None) -> int:

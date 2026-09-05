@@ -20,7 +20,7 @@ from . import __version__
 from .protocol import LaunchRequest, ProtocolError, parse_forced_command
 
 DEFAULT_CONFIG_PATH = Path("~/.config/hermes-link/server.json")
-SAFE_EXECUTOR_CAPABILITY_VERSION = "1"
+SAFE_EXECUTOR_CAPABILITY_VERSION = "2"
 _HERMES_ENTRYPOINT = "from hermes_cli.main import main; raise SystemExit(main())"
 _REQUIRED_CONFIG_FIELDS = frozenset(
     {
@@ -167,6 +167,7 @@ def build_hermes_env(
     """Create child-only settings that route Hermes tools to Omarchy."""
 
     env = _runtime_python_env(config, base_env)
+    env.update(request.env or {})
     env.pop("SSH_ORIGINAL_COMMAND", None)
     env.pop("HLINK_SERVER_CONFIG", None)
     env.update(
@@ -219,7 +220,7 @@ def verify_safe_executor_capability(config: ServerConfig) -> None:
         or completed.stdout.strip() != SAFE_EXECUTOR_CAPABILITY_VERSION
     ):
         raise ServerError(
-            "installed Hermes lacks Hermes Link safe-executor capability v1; "
+            f"installed Hermes must support Hermes Link safe-executor capability v{SAFE_EXECUTOR_CAPABILITY_VERSION}; "
             "refusing an unsafe or misrouted execution session"
         )
 
@@ -361,6 +362,43 @@ def _validate_executor_report(
         raise ServerError("Omarchy identity probe returned the wrong working directory")
 
 
+def resolve_remote_session(config: ServerConfig, request: LaunchRequest) -> int:
+    """Resolve native session titles/IDs and workspace-scoped continuation."""
+    script = r"""
+import json, sys
+from hermes_state import SessionDB
+cwd, selector = sys.argv[1:]
+db = SessionDB()
+try:
+    sid = None
+    if selector and selector.lower() != "latest":
+        row = db.get_session(selector)
+        sid = row["id"] if row else db.resolve_session_by_title(selector)
+    else:
+        # Search both surfaces in this workspace before falling back elsewhere.
+        for workspace in (cwd, None):
+            for source in ("tui", "cli"):
+                scope = {"workspace_key": workspace} if workspace is not None else {}
+                rows = db.search_sessions(source=source, limit=1, **scope)
+                if rows:
+                    sid = rows[0]["id"]
+                    break
+            if sid:
+                break
+    if not sid:
+        print("hlink: no matching remote session", file=sys.stderr)
+        raise SystemExit(1)
+    print(json.dumps({"session": db.get_compression_tip(sid) or sid}))
+finally:
+    db.close()
+"""
+    return subprocess.run(
+        [str(_runtime_python(config)), "-c", script, request.cwd, request.session or ""],
+        cwd=config.hermes_source_root, env=_runtime_python_env(config), check=False,
+        timeout=20,
+    ).returncode
+
+
 def has_interactive_tty() -> bool:
     """Return whether SSH allocated the PTY required by the real Hermes TUI."""
 
@@ -387,12 +425,20 @@ def main(argv: Sequence[str] | None = None) -> int:
         verify_safe_executor_capability(config)
         if request.action == "doctor":
             return run_doctor(config, request)
+        if request.action == "resolve":
+            return resolve_remote_session(config, request)
+        if request.action == "gateway":
+            # No remote renderer or PTY: stdout is exclusively native JSON-RPC.
+            command = [str(_runtime_python(config)), "-m", "tui_gateway.entry"]
+            os.chdir(config.hermes_source_root)
+            os.execvpe(command[0], command, build_hermes_env(config, request))
+            raise ServerError("Hermes gateway unexpectedly returned")
         if not has_interactive_tty():
             raise ServerError("interactive Hermes Link sessions require an SSH PTY")
         command = build_hermes_argv(config, request)
         os.execvpe(command[0], command, build_hermes_env(config, request))
         raise ServerError("Hermes process unexpectedly returned")
-    except (ProtocolError, ServerError, OSError) as exc:
+    except (ProtocolError, ServerError, OSError, subprocess.SubprocessError) as exc:
         print(f"hlink-server: {exc}", file=sys.stderr)
         return 2
 

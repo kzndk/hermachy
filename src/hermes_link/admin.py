@@ -326,29 +326,46 @@ def omarchy_install(args: argparse.Namespace) -> int:
     ssh_dir, default_bin, default_config = _home_paths()
     bin_dir = _absolute_runtime_path(args.bin_dir, "bin_dir") if args.bin_dir else default_bin
     config_dir = default_config
+    artifact = Path(args.artifact).expanduser()
+    gateway_artifact = artifact.parent / "hlink-gateway"
+    tui_dir = artifact.parent / "tui"
+    for required in (artifact, gateway_artifact, tui_dir / "entry.mjs"):
+        if not required.is_file():
+            raise AdminError(f"incomplete native TUI release: missing {required}")
+    if args.admin_artifact and not Path(args.admin_artifact).expanduser().is_file():
+        raise AdminError(f"artifact not found: {args.admin_artifact}")
+    host = _safe_endpoint(args.studio_host, "studio_host")
+    user = _safe_endpoint(args.studio_user, "studio_user")
+    port = _safe_port(args.studio_port, "studio_port")
+    executor_key = _read_public_key(
+        Path(args.studio_executor_public_key).expanduser(),
+        "hermes-link-studio-executor",
+    )
     _ensure_private_directory(ssh_dir)
     _ensure_private_directory(config_dir)
     bin_dir.mkdir(parents=True, exist_ok=True)
-
-    artifact = Path(args.artifact).expanduser()
-    client_path = bin_dir / "hlink"
-    install_executable(artifact, client_path)
-    _install_alias(bin_dir / "hermes-link", "hlink")
-    admin_path = None
-    if args.admin_artifact:
-        admin_path = bin_dir / "hlink-admin"
-        install_executable(Path(args.admin_artifact).expanduser(), admin_path)
-
     key_path = (
         _absolute_runtime_path(args.client_key, "client_key")
         if args.client_key
         else ssh_dir / "hlink_to_morpheus"
     )
     private, public = ensure_ed25519_key(key_path, "hermes-link-omarchy-client")
-    executor_key = _read_public_key(
-        Path(args.studio_executor_public_key).expanduser(),
-        "hermes-link-studio-executor",
-    )
+    client_path = bin_dir / "hlink"
+    install_executable(artifact, client_path)
+    _install_alias(bin_dir / "hermes-link", "hlink")
+    # Native TUI assets travel with the zipapps in a release directory.
+    install_executable(gateway_artifact, bin_dir / "hlink-gateway")
+    target_tui = Path.home() / ".local" / "share" / "hlink" / "tui"
+    target_tui.mkdir(parents=True, exist_ok=True)
+    for source in tui_dir.iterdir():
+        if source.is_file():
+            atomic_write(target_tui / source.name, source.read_bytes(), 0o644)
+
+    admin_path = None
+    if args.admin_artifact:
+        admin_path = bin_dir / "hlink-admin"
+        install_executable(Path(args.admin_artifact).expanduser(), admin_path)
+
     upsert_marked_block(
         ssh_dir / "authorized_keys",
         "studio-executor",
@@ -356,9 +373,6 @@ def omarchy_install(args: argparse.Namespace) -> int:
         0o600,
     )
 
-    host = _safe_endpoint(args.studio_host, "studio_host")
-    user = _safe_endpoint(args.studio_user, "studio_user")
-    port = _safe_port(args.studio_port, "studio_port")
     config = {
         "identity_file": str(private),
         "studio_host": host,
@@ -401,7 +415,11 @@ def studio_finish(args: argparse.Namespace) -> int:
 
     artifact = Path(args.artifact).expanduser()
     server_path = bin_dir / "hlink-server"
-    install_executable(artifact, server_path)
+    if not artifact.is_file():
+        raise AdminError(f"artifact not found: {artifact}")
+    client_key = _read_public_key(
+        Path(args.client_public_key).expanduser(), "hermes-link-omarchy-client"
+    )
 
     executor_key = (
         _absolute_runtime_path(args.executor_key, "executor_key")
@@ -459,11 +477,9 @@ def studio_finish(args: argparse.Namespace) -> int:
         "hermes_source_root": str(hermes_source_root),
     }
     config_path = config_dir / "server.json"
+    install_executable(artifact, server_path)
     atomic_write(config_path, _json_bytes(config), 0o600)
 
-    client_key = _read_public_key(
-        Path(args.client_public_key).expanduser(), "hermes-link-omarchy-client"
-    )
     forced = _quote_authorized_command(server_path)
     upsert_marked_block(
         ssh_dir / "authorized_keys",

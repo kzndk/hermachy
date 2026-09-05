@@ -14,10 +14,10 @@ PROTOCOL_VERSION = 1
 MAX_TOKEN_BYTES = 8192
 MAX_CWD_CHARS = 4096
 MAX_SESSION_CHARS = 512
-ACTIONS = frozenset({"new", "continue", "resume", "doctor"})
+ACTIONS = frozenset({"new", "continue", "resume", "doctor", "gateway", "resolve"})
 _TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 _REQUIRED_FIELDS = frozenset({"v", "cwd", "action"})
-_ALLOWED_FIELDS = _REQUIRED_FIELDS | {"session"}
+_ALLOWED_FIELDS = _REQUIRED_FIELDS | {"session", "env"}
 
 
 class ProtocolError(ValueError):
@@ -31,6 +31,18 @@ class LaunchRequest:
     cwd: str
     action: str = "new"
     session: str | None = None
+    env: dict[str, str] | None = None
+
+
+# Only presentation/invocation settings; execution routing and Python imports
+# remain entirely under the server launcher's control.
+LAUNCH_ENV_KEYS = frozenset({
+    "HERMES_MODEL", "HERMES_INFERENCE_MODEL", "HERMES_TUI_PROVIDER",
+    "HERMES_INFERENCE_PROVIDER", "HERMES_TUI_TOOLSETS", "HERMES_TUI_SKILLS",
+    "HERMES_TUI_CHECKPOINTS", "HERMES_TUI_PASS_SESSION_ID", "HERMES_TUI_MAX_TURNS",
+    "HERMES_TUI_TOOL_PROGRESS", "HERMES_ACCEPT_HOOKS", "HERMES_YOLO_MODE",
+    "HERMES_IGNORE_USER_CONFIG", "HERMES_IGNORE_RULES", "HERMES_SAFE_MODE",
+})
 
 
 def _contains_control(text: str) -> bool:
@@ -85,7 +97,17 @@ def _validate_payload(payload: Any) -> LaunchRequest:
     if action == "resume" and not has_session:
         raise ProtocolError("resume requires a session")
 
-    return LaunchRequest(cwd=cwd, action=action, session=session)
+    launch_env = payload.get("env")
+    if launch_env is not None:
+        if not isinstance(launch_env, dict) or set(launch_env) - LAUNCH_ENV_KEYS:
+            raise ProtocolError("unsupported launch environment")
+        if action != "gateway":
+            raise ProtocolError("launch environment is only valid for gateway")
+        launch_env = {k: _validate_text(v, k, maximum=2048)
+                      for k, v in launch_env.items()}
+    if action == "gateway" and has_session:
+        raise ProtocolError("gateway does not accept a session")
+    return LaunchRequest(cwd=cwd, action=action, session=session, env=launch_env)
 
 
 def _object_without_duplicates(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -107,6 +129,8 @@ def encode_request(request: LaunchRequest) -> str:
     }
     if request.session is not None:
         payload["session"] = request.session
+    if request.env is not None:
+        payload["env"] = request.env
     validated = _validate_payload(payload)
 
     serializable: dict[str, Any] = {
@@ -116,6 +140,9 @@ def encode_request(request: LaunchRequest) -> str:
     }
     if validated.session is not None:
         serializable["session"] = validated.session
+
+    if validated.env is not None:
+        serializable["env"] = validated.env
 
     raw = json.dumps(
         serializable,

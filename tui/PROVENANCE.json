@@ -1,0 +1,8 @@
+{
+  "hermes_revision": "065963701529a614d4c5d24c061000517cf138b7",
+  "upstream": "https://github.com/NousResearch/hermes-agent",
+  "assets": {
+    "entry.mjs": "7bdbd356984b7f3a1d815bbdf46e7828c8bd0dda802125edab0df94018286045",
+    "hermes_parser.py": "01f1a45a1ab7dba841368058bd2f470fdadc931a10674a3904dab5cfe783cdd2"
+  }
+}

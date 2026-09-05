@@ -155,6 +155,9 @@ class AdminTests(unittest.TestCase):
             home.mkdir()
             artifact = root / "hlink"
             artifact.write_bytes(b"#!/usr/bin/env python3\nprint('hlink')\n")
+            (root / "hlink-gateway").write_bytes(b"#!/usr/bin/env python3\n")
+            (root / "tui").mkdir()
+            (root / "tui/entry.mjs").write_text('// native TUI fixture\n')
             studio_pub = root / "studio.pub"
             studio_pub.write_text(valid_public_key("studio"), encoding="utf-8")
             ssh_dir = home / ".ssh"
@@ -178,6 +181,8 @@ class AdminTests(unittest.TestCase):
             self.assertIn("restrict ssh-ed25519", first)
             self.assertTrue((home / ".local" / "bin" / "hlink").is_file())
             self.assertTrue((home / ".local" / "bin" / "hlink-admin").is_file())
+            self.assertTrue((home / ".local" / "bin" / "hlink-gateway").is_file())
+            self.assertTrue((home / ".local/share/hlink/tui/entry.mjs").is_file())
             self.assertEqual(
                 os.readlink(home / ".local" / "bin" / "hermes-link"), "hlink"
             )
@@ -186,6 +191,22 @@ class AdminTests(unittest.TestCase):
             self.assertEqual(config["studio_host"], "morpheus.example-tailnet.ts.net")
             self.assertEqual(stat.S_IMODE(config_path.stat().st_mode), 0o600)
             self.assertTrue((home / ".ssh" / "hlink_to_morpheus.pub").is_file())
+
+    def test_incomplete_release_does_not_replace_working_client(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            home = root / 'home'
+            target = home / '.local/bin/hlink'
+            target.parent.mkdir(parents=True)
+            target.write_bytes(b'working client')
+            artifact = root / 'hlink'
+            artifact.write_bytes(b'new client')
+            args = ['omarchy-install', '--artifact', str(artifact),
+                    '--studio-host', 'host', '--studio-user', 'user',
+                    '--studio-executor-public-key', str(root / 'unused.pub')]
+            with mock.patch.dict(os.environ, {'HOME': str(home)}):
+                self.assertEqual(main(args), 2)
+            self.assertEqual(target.read_bytes(), b'working client')
 
     def test_studio_finish_installs_forced_command_without_overwriting_keys(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -241,6 +262,9 @@ class AdminTests(unittest.TestCase):
             home.mkdir()
             artifact = root / "hlink-server"
             artifact.write_bytes(b"#!/usr/bin/env python3\n")
+            installed = home / '.local/bin/hlink-server'
+            installed.parent.mkdir(parents=True)
+            installed.write_bytes(b'working server')
             unrelated_hermes = root / "other-hermes"
             unrelated_hermes.write_bytes(b"#!/bin/sh\n")
             unrelated_hermes.chmod(0o755)
@@ -271,6 +295,7 @@ class AdminTests(unittest.TestCase):
                 self.assertEqual(main(args), 2)
 
             self.assertIn("same Hermes runtime", error.getvalue())
+            self.assertEqual(installed.read_bytes(), b'working server')
             authorized = home / ".ssh" / "authorized_keys"
             self.assertFalse(authorized.exists())
 

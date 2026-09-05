@@ -1,6 +1,6 @@
 # Configure Omarchy with a remote Hermes Agent
 
-This guide connects an Omarchy workstation to a Hermes Agent running on another machine. You start `hlink` in an Omarchy project directory, interact with the real remote Hermes TUI, and have Hermes execute terminal, file, and code operations on Omarchy.
+This guide connects an Omarchy workstation to a Hermes Agent running on another machine. You start `hlink` in an Omarchy project directory, interact with the native Hermes TUI rendered locally, and have Hermes execute terminal, file, and code operations on Omarchy.
 
 ## 1. Understand the boundary
 
@@ -54,6 +54,7 @@ tailscale status
 Requirements:
 
 - Python 3.9 or newer
+- Node.js for the local native TUI
 - OpenSSH server and client
 - Tailscale online in the same tailnet as the remote host
 - an existing absolute project directory, such as `/home/alex/code/project`
@@ -91,7 +92,7 @@ A common source installation is:
 
 ### Required Hermes safe-executor capability
 
-The remote Hermes build must implement Hlink safe-executor capability v1. Check it from the Hermes source/runtime directory:
+The remote Hermes build must implement Hlink safe-executor capability v2. Check it from the Hermes source/runtime directory:
 
 ```bash
 cd ~/.hermes/hermes-agent
@@ -101,10 +102,10 @@ venv/bin/python -c 'from tools.environments.ssh import HERMES_LINK_CONTROL_VERSI
 Required output:
 
 ```text
-1
+2
 ```
 
-This capability must enforce the full no-sync, dedicated-identity, process-route contract described in [SECURITY.md](../SECURITY.md), including the protected setting `TERMINAL_SYNC_REMOTE_STATE=false`. A hand-added constant is not sufficient. If the import fails or prints anything other than `1`, stop: `hlink-server` will reject the runtime, and disabling that check would risk copying remote Hermes state to Omarchy.
+This capability must enforce the full no-sync, dedicated-identity, process-route contract described in [SECURITY.md](../SECURITY.md), including the protected setting `TERMINAL_SYNC_REMOTE_STATE=false`. A hand-added constant is not sufficient. If the import fails or prints anything other than `2`, stop: `hlink-server` will reject the runtime, and disabling that check would risk copying remote Hermes state to Omarchy.
 
 ## 3. Record and verify both Tailscale identities
 
@@ -197,11 +198,13 @@ This creates:
 dist/hlink
 dist/hlink-server
 dist/hlink-admin
+dist/hlink-gateway
+dist/tui/
 ```
 
-The files are standalone Python zipapps. Their runtime needs only Python 3.9+.
+The four executables are standalone Python zipapps requiring Python 3.9+. The local renderer in `dist/tui/` also requires Node.js. The builder checks the renderer and parser provenance before producing the release.
 
-For the following steps, keep this repository checkout on the remote host. If you built on Omarchy, transfer the repository or the three `dist/` artifacts to the remote host without transferring any private key.
+For the following steps, keep this repository checkout on the remote host. If you built on Omarchy, transfer the repository or the `dist/` release directory to the remote host without transferring any private key.
 
 ## 6. Phase A — prepare the remote host
 
@@ -221,35 +224,34 @@ This creates or validates the remote-host-to-Omarchy execution key:
 ./dist/handoff/studio-executor.pub
 ```
 
-Transfer **only** these files to Omarchy:
+Transfer the complete client release and public handoff key to Omarchy, preserving this layout:
 
 ```text
-dist/hlink
-dist/hlink-admin
-dist/handoff/studio-executor.pub
+hlink
+hlink-admin
+hlink-gateway
+tui/entry.mjs
+tui/PROVENANCE.json
+tui/LICENSE
+studio-executor.pub
 ```
 
-For example, with Tailscale Taildrop (an optional Tailscale feature that must be enabled and supports transfers between your own untagged devices):
+Use an authenticated file transfer. For example, prepare a bootstrap archive on the remote host:
 
 ```bash
-# On the remote host
-tailscale file cp \
-  dist/hlink \
-  dist/hlink-admin \
-  dist/handoff/studio-executor.pub \
-  OMARCHY_HOST:
+tar -C dist -czf hlink-bootstrap.tar.gz hlink hlink-admin hlink-gateway tui \
+  -C handoff studio-executor.pub
 ```
 
-Then on Omarchy:
+Transfer `hlink-bootstrap.tar.gz` to Omarchy, then extract it:
 
 ```bash
 mkdir -p ~/Downloads/hlink-bootstrap
-tailscale file get ~/Downloads/hlink-bootstrap
+tar -xzf ~/Downloads/hlink-bootstrap.tar.gz -C ~/Downloads/hlink-bootstrap
 cd ~/Downloads/hlink-bootstrap
-chmod +x hlink hlink-admin
 ```
 
-If Taildrop is unavailable, use another authenticated transfer method. Do not transfer `~/.ssh/hlink_to_omarchy`.
+Do not transfer `~/.ssh/hlink_to_omarchy`; that private key stays on the remote host.
 
 ## 7. Phase B — install the Omarchy endpoint
 
@@ -385,7 +387,7 @@ cd ~/code/my-project
 hlink
 ```
 
-The screen is the real remote Hermes TUI. Its models, memory, skills, sessions, and credentials remain on the remote host. Terminal, file, search, patch, build, test, and code-execution tools use Omarchy.
+The screen is the native Hermes TUI rendered locally. Its models, memory, skills, sessions, and credentials remain on the remote host. Terminal, file, search, patch, build, test, and code-execution tools use Omarchy.
 
 Session options:
 
@@ -435,7 +437,7 @@ If Omarchy already runs its own Hermes installation, do not infer Hlink copying 
 Symptom:
 
 ```text
-installed Hermes lacks Hermes Link safe-executor capability v1
+installed Hermes must support Hermes Link safe-executor capability v2
 ```
 
 Use a Hermes build that implements the complete capability contract. Do not edit Hlink to skip the check and do not use stock SSH state synchronization.
@@ -472,7 +474,7 @@ Stop and verify whether the destination was rebuilt or compromised. Compare fing
 
 ### Garbled or missing TUI
 
-Run `hlink` from an interactive terminal. Hlink requests an SSH PTY and the real Hermes TUI requires one.
+Run `hlink` from an interactive local terminal with Node.js installed. The native TUI needs a local terminal; the gateway uses SSH JSON-RPC without a remote PTY. Install `hlink-gateway` and the matching `tui/` assets alongside the client release.
 
 ## 13. Revoke access
 
