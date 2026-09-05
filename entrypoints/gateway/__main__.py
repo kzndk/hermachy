@@ -1,2 +1,2 @@
-from hermes_link.gateway import main
+from hermachy.gateway import main
 raise SystemExit(main())

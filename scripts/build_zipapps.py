@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build dependency-free, reproducible Hermes Link zipapps."""
+"""Build dependency-free, reproducible Hermachy zipapps."""
 
 from __future__ import annotations
 
@@ -13,12 +13,12 @@ from typing import Iterable, Sequence
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE_PACKAGE = ROOT / "src" / "hermes_link"
+SOURCE_PACKAGE = ROOT / "src" / "hermachy"
 ENTRYPOINTS = {
-    "hlink": ROOT / "entrypoints" / "client" / "__main__.py",
-    "hlink-server": ROOT / "entrypoints" / "server" / "__main__.py",
-    "hlink-admin": ROOT / "entrypoints" / "admin" / "__main__.py",
-    "hlink-gateway": ROOT / "entrypoints" / "gateway" / "__main__.py",
+    "hermachy": ROOT / "entrypoints" / "client" / "__main__.py",
+    "hermachy-server": ROOT / "entrypoints" / "server" / "__main__.py",
+    "hermachy-admin": ROOT / "entrypoints" / "admin" / "__main__.py",
+    "hermachy-gateway": ROOT / "entrypoints" / "gateway" / "__main__.py",
 }
 SHEBANG = b"#!/usr/bin/env python3\n"
 FIXED_ZIP_TIMESTAMP = (1980, 1, 1, 0, 0, 0)
@@ -28,7 +28,7 @@ def _archive_sources(name: str) -> Iterable[tuple[str, Path]]:
     yield "__main__.py", ENTRYPOINTS[name]
     for source in sorted(SOURCE_PACKAGE.rglob("*.py")):
         relative = source.relative_to(SOURCE_PACKAGE).as_posix()
-        yield f"hermes_link/{relative}", source
+        yield f"hermachy/{relative}", source
 
 
 def _zip_info(archive_name: str) -> zipfile.ZipInfo:
@@ -41,7 +41,7 @@ def _zip_info(archive_name: str) -> zipfile.ZipInfo:
 
 def build_one(name: str, output_dir: Path) -> Path:
     if name not in ENTRYPOINTS:
-        raise ValueError(f"unknown Hermes Link artifact: {name}")
+        raise ValueError(f"unknown Hermachy artifact: {name}")
     output_dir.mkdir(parents=True, exist_ok=True)
     target = output_dir / name
     temporary = output_dir / f".{name}.{os.getpid()}.tmp"
@@ -92,7 +92,7 @@ def build_all(output_dir: Path) -> list[Path]:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Build Hermes Link executable zipapps")
+    parser = argparse.ArgumentParser(description="Build Hermachy executable zipapps")
     parser.add_argument("--output-dir", default=str(ROOT / "dist"))
     args = parser.parse_args(argv)
     for artifact in build_all(Path(args.output_dir).expanduser()):

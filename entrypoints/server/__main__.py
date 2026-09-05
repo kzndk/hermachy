@@ -1,3 +1,3 @@
-from hermes_link.server import main
+from hermachy.server import main
 
 raise SystemExit(main())

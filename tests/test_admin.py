@@ -10,7 +10,7 @@ import tempfile
 import unittest
 from unittest import mock
 
-from hermes_link.admin import (
+from hermachy.admin import (
     AdminError,
     _quote_authorized_command,
     atomic_write,
@@ -43,7 +43,7 @@ class AdminTests(unittest.TestCase):
             root = Path(directory)
             source = root / "source"
             source.write_bytes(b"#!/usr/bin/env python3\n")
-            destination = root / "bin" / "hlink"
+            destination = root / "bin" / "hermachy"
             install_executable(source, destination)
             self.assertEqual(destination.read_bytes(), source.read_bytes())
             self.assertEqual(stat.S_IMODE(destination.stat().st_mode), 0o755)
@@ -59,9 +59,9 @@ class AdminTests(unittest.TestCase):
             second = path.read_text(encoding="utf-8")
             self.assertEqual(first, second)
             self.assertTrue(second.startswith(unrelated))
-            self.assertEqual(second.count("# >>> hermes-link:executor >>>"), 1)
+            self.assertEqual(second.count("# >>> hermachy:executor >>>"), 1)
             self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
-            lock_path = path.with_name(path.name + ".hlink.lock")
+            lock_path = path.with_name(path.name + ".hermachy.lock")
             self.assertEqual(stat.S_IMODE(lock_path.stat().st_mode), 0o600)
 
     def test_marked_block_replacement_changes_only_managed_region(self) -> None:
@@ -72,7 +72,7 @@ class AdminTests(unittest.TestCase):
             upsert_marked_block(path, "x", ["new"], 0o600)
             self.assertEqual(
                 path.read_text(),
-                "before\n# >>> hermes-link:x >>>\nnew\n# <<< hermes-link:x <<<\nafter\n",
+                "before\n# >>> hermachy:x >>>\nnew\n# <<< hermachy:x <<<\nafter\n",
             )
             self.assertTrue(remove_marked_block(path, "x", 0o600))
             self.assertEqual(path.read_text(), "before\nafter\n")
@@ -81,7 +81,7 @@ class AdminTests(unittest.TestCase):
     def test_rejects_malformed_marked_regions(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "file"
-            path.write_text("# >>> hermes-link:x >>>\nno end\n", encoding="utf-8")
+            path.write_text("# >>> hermachy:x >>>\nno end\n", encoding="utf-8")
             with self.assertRaises(AdminError):
                 upsert_marked_block(path, "x", ["new"], 0o600)
 
@@ -89,7 +89,7 @@ class AdminTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "authorized_keys"
             with mock.patch(
-                "hermes_link.admin._read_managed_text",
+                "hermachy.admin._read_managed_text",
                 side_effect=["ssh-ed25519 AAAA original\n", "ssh-ed25519 AAAA changed\n"],
             ), self.assertRaisesRegex(AdminError, "changed concurrently"):
                 upsert_marked_block(path, "x", ["managed"], 0o600)
@@ -113,7 +113,7 @@ class AdminTests(unittest.TestCase):
 
     def test_authorized_command_shell_quotes_metacharacter_path(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            executable = Path(directory) / "hlink server; printf INJECTED"
+            executable = Path(directory) / "hermachy server; printf INJECTED"
             executable.write_text("#!/bin/sh\nprintf 'SAFE\\n'\n", encoding="utf-8")
             executable.chmod(0o700)
             command = _quote_authorized_command(executable)
@@ -128,7 +128,7 @@ class AdminTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             home = Path(directory) / "home"
             handoff = Path(directory) / "handoff"
-            admin_artifact = Path(directory) / "hlink-admin"
+            admin_artifact = Path(directory) / "hermachy-admin"
             admin_artifact.write_bytes(b"#!/usr/bin/env python3\n")
             output = io.StringIO()
             with mock.patch.dict(os.environ, {"HOME": str(home)}, clear=False), mock.patch(
@@ -140,11 +140,11 @@ class AdminTests(unittest.TestCase):
                 ])
             self.assertEqual(result, 0)
             report = json.loads(output.getvalue())
-            private = home / ".ssh" / "hlink_to_omarchy"
+            private = home / ".ssh" / "hermachy_to_omarchy"
             self.assertTrue(private.is_file())
             self.assertTrue(private.with_name(private.name + ".pub").is_file())
             self.assertTrue((handoff / "studio-executor.pub").is_file())
-            self.assertTrue((home / ".local" / "bin" / "hlink-admin").is_file())
+            self.assertTrue((home / ".local" / "bin" / "hermachy-admin").is_file())
             self.assertEqual(stat.S_IMODE(private.stat().st_mode), 0o600)
             self.assertEqual(report["status"], "prepared")
 
@@ -153,9 +153,9 @@ class AdminTests(unittest.TestCase):
             root = Path(directory)
             home = root / "home"
             home.mkdir()
-            artifact = root / "hlink"
-            artifact.write_bytes(b"#!/usr/bin/env python3\nprint('hlink')\n")
-            (root / "hlink-gateway").write_bytes(b"#!/usr/bin/env python3\n")
+            artifact = root / "hermachy"
+            artifact.write_bytes(b"#!/usr/bin/env python3\nprint('hermachy')\n")
+            (root / "hermachy-gateway").write_bytes(b"#!/usr/bin/env python3\n")
             (root / "tui").mkdir()
             (root / "tui/entry.mjs").write_text('// native TUI fixture\n')
             studio_pub = root / "studio.pub"
@@ -179,27 +179,25 @@ class AdminTests(unittest.TestCase):
             self.assertEqual(first, authorized.read_text())
             self.assertIn("unrelated", first)
             self.assertIn("restrict ssh-ed25519", first)
-            self.assertTrue((home / ".local" / "bin" / "hlink").is_file())
-            self.assertTrue((home / ".local" / "bin" / "hlink-admin").is_file())
-            self.assertTrue((home / ".local" / "bin" / "hlink-gateway").is_file())
-            self.assertTrue((home / ".local/share/hlink/tui/entry.mjs").is_file())
-            self.assertEqual(
-                os.readlink(home / ".local" / "bin" / "hermes-link"), "hlink"
-            )
-            config_path = home / ".config" / "hermes-link" / "client.json"
+            self.assertTrue((home / ".local" / "bin" / "hermachy").is_file())
+            self.assertTrue((home / ".local" / "bin" / "hermachy-admin").is_file())
+            self.assertTrue((home / ".local" / "bin" / "hermachy-gateway").is_file())
+            self.assertTrue((home / ".local/share/hermachy/tui/entry.mjs").is_file())
+            self.assertFalse((home / ".local" / "bin" / "hermachy").is_symlink())
+            config_path = home / ".config" / "hermachy" / "client.json"
             config = json.loads(config_path.read_text())
             self.assertEqual(config["studio_host"], "morpheus.example-tailnet.ts.net")
             self.assertEqual(stat.S_IMODE(config_path.stat().st_mode), 0o600)
-            self.assertTrue((home / ".ssh" / "hlink_to_morpheus.pub").is_file())
+            self.assertTrue((home / ".ssh" / "hermachy_to_morpheus.pub").is_file())
 
     def test_incomplete_release_does_not_replace_working_client(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             home = root / 'home'
-            target = home / '.local/bin/hlink'
+            target = home / '.local/bin/hermachy'
             target.parent.mkdir(parents=True)
             target.write_bytes(b'working client')
-            artifact = root / 'hlink'
+            artifact = root / 'hermachy'
             artifact.write_bytes(b'new client')
             args = ['omarchy-install', '--artifact', str(artifact),
                     '--studio-host', 'host', '--studio-user', 'user',
@@ -213,11 +211,11 @@ class AdminTests(unittest.TestCase):
             root = Path(directory)
             home = root / "home"
             home.mkdir()
-            artifact = root / "hlink-server"
+            artifact = root / "hermachy-server"
             artifact.write_bytes(b"#!/usr/bin/env python3\n")
 
             executor_key, _ = ensure_ed25519_key(
-                home / ".ssh" / "hlink_to_omarchy", "studio-executor"
+                home / ".ssh" / "hermachy_to_omarchy", "studio-executor"
             )
             client_pub = root / "client.pub"
             client_pub.write_text(valid_public_key("client"), encoding="utf-8")
@@ -246,10 +244,10 @@ class AdminTests(unittest.TestCase):
                 self.assertEqual(main(args), 0)
             self.assertEqual(first, authorized.read_text())
             self.assertIn("unrelated", first)
-            server_path = home / ".local" / "bin" / "hlink-server"
+            server_path = home / ".local" / "bin" / "hermachy-server"
             self.assertIn(f'command="{server_path}"', first)
             self.assertIn("restrict,pty", first)
-            config_path = home / ".config" / "hermes-link" / "server.json"
+            config_path = home / ".config" / "hermachy" / "server.json"
             config = json.loads(config_path.read_text())
             self.assertEqual(config["executor_user"], "omarchy-user")
             self.assertEqual(config["hermes_command"], str(hermes))
@@ -260,15 +258,15 @@ class AdminTests(unittest.TestCase):
             root = Path(directory)
             home = root / "home"
             home.mkdir()
-            artifact = root / "hlink-server"
+            artifact = root / "hermachy-server"
             artifact.write_bytes(b"#!/usr/bin/env python3\n")
-            installed = home / '.local/bin/hlink-server'
+            installed = home / '.local/bin/hermachy-server'
             installed.parent.mkdir(parents=True)
             installed.write_bytes(b'working server')
             unrelated_hermes = root / "other-hermes"
             unrelated_hermes.write_bytes(b"#!/bin/sh\n")
             unrelated_hermes.chmod(0o755)
-            ensure_ed25519_key(home / ".ssh" / "hlink_to_omarchy", "studio-executor")
+            ensure_ed25519_key(home / ".ssh" / "hermachy_to_omarchy", "studio-executor")
             client_pub = root / "client.pub"
             client_pub.write_text(valid_public_key("client"), encoding="utf-8")
             runtime_bin = root / "hermes-agent" / "venv" / "bin"

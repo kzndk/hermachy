@@ -2,7 +2,7 @@ import base64
 import json
 import unittest
 
-from hermes_link.protocol import (
+from hermachy.protocol import (
     MAX_TOKEN_BYTES,
     LaunchRequest,
     ProtocolError,
@@ -38,11 +38,11 @@ class ProtocolTests(unittest.TestCase):
     def test_parse_forced_command(self) -> None:
         request = LaunchRequest("/home/u/project", "resume", "session name")
         self.assertEqual(
-            parse_forced_command(f"hlink-v1 {encode_request(request)}"), request
+            parse_forced_command(f"hermachy-v1 {encode_request(request)}"), request
         )
 
     def test_rejects_bad_forced_commands(self) -> None:
-        bad = [None, "", "hlink-v2 abc", "hlink-v1", "hlink-v1 abc extra"]
+        bad = [None, "", "hermachy-v2 abc", "hermachy-v1", "hermachy-v1 abc extra"]
         for command in bad:
             with self.subTest(command=command), self.assertRaises(ProtocolError):
                 parse_forced_command(command)

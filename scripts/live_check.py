@@ -9,9 +9,9 @@ import sys
 import time
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / 'dist/hlink'))
-from hermes_link.client import check_remote, load_client_config, _config_path, resolve_session
-from hermes_link.protocol import LaunchRequest, encode_request
+sys.path.insert(0, str(ROOT / 'dist/hermachy'))
+from hermachy.client import check_remote, load_client_config, _config_path, resolve_session
+from hermachy.protocol import LaunchRequest, encode_request
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--session', help='Also check resolution of an existing session title or ID')
@@ -23,8 +23,8 @@ print('Doctor:', report['status'], flush=True)
 if args.session:
     session = resolve_session(config, LaunchRequest(cwd, 'resolve', args.session))
     print('Named session resolves:', bool(session), flush=True)
-env = dict(os.environ, HLINK_REQUEST=encode_request(LaunchRequest(cwd, 'gateway')))
-proc = subprocess.Popen([str(ROOT / 'dist/hlink-gateway'), '-m', 'tui_gateway.entry'],
+env = dict(os.environ, HERMACHY_REQUEST=encode_request(LaunchRequest(cwd, 'gateway')))
+proc = subprocess.Popen([str(ROOT / 'dist/hermachy-gateway'), '-m', 'tui_gateway.entry'],
                         stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                         stderr=subprocess.PIPE, env=env)
 selector = selectors.DefaultSelector()

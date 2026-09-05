@@ -1,4 +1,4 @@
-"""Idempotent setup and revocation utilities for Hermes Link."""
+"""Idempotent setup and revocation utilities for Hermachy."""
 
 from __future__ import annotations
 
@@ -71,8 +71,8 @@ def _marker_lines(marker: str) -> tuple[str, str]:
     if not _MARKER_RE.fullmatch(marker):
         raise AdminError(f"invalid managed-block marker: {marker!r}")
     return (
-        f"# >>> hermes-link:{marker} >>>",
-        f"# <<< hermes-link:{marker} <<<",
+        f"# >>> hermachy:{marker} >>>",
+        f"# <<< hermachy:{marker} <<<",
     )
 
 
@@ -134,10 +134,10 @@ def remove_marked_block(path: Path, marker: str, mode: int = 0o600) -> bool:
 
 @contextlib.contextmanager
 def _managed_file_lock(path: Path):
-    """Serialize Hlink edits through a stable sidecar lock."""
+    """Serialize Hermachy edits through a stable sidecar lock."""
 
     path.parent.mkdir(parents=True, exist_ok=True)
-    lock_path = path.with_name(path.name + ".hlink.lock")
+    lock_path = path.with_name(path.name + ".hermachy.lock")
     descriptor = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
     try:
         os.fchmod(descriptor, 0o600)
@@ -270,22 +270,9 @@ def _json_bytes(payload: dict[str, Any]) -> bytes:
     return (json.dumps(payload, indent=2, sort_keys=True) + "\n").encode("utf-8")
 
 
-def _install_alias(alias: Path, target_name: str) -> None:
-    alias.parent.mkdir(parents=True, exist_ok=True)
-    temporary = alias.with_name(f".{alias.name}.{os.getpid()}.tmp")
-    with contextlib.suppress(FileNotFoundError):
-        temporary.unlink()
-    try:
-        os.symlink(target_name, temporary)
-        os.replace(temporary, alias)
-    finally:
-        with contextlib.suppress(FileNotFoundError):
-            temporary.unlink()
-
-
 def _home_paths() -> tuple[Path, Path, Path]:
     home = Path.home()
-    return home / ".ssh", home / ".local" / "bin", home / ".config" / "hermes-link"
+    return home / ".ssh", home / ".local" / "bin", home / ".config" / "hermachy"
 
 
 def _absolute_runtime_path(value: str, label: str) -> Path:
@@ -299,10 +286,10 @@ def studio_prepare(args: argparse.Namespace) -> int:
     ssh_dir, bin_dir, _ = _home_paths()
     admin_path = None
     if args.admin_artifact:
-        admin_path = bin_dir / "hlink-admin"
+        admin_path = bin_dir / "hermachy-admin"
         install_executable(Path(args.admin_artifact).expanduser(), admin_path)
-    key_path = Path(args.key).expanduser() if args.key else ssh_dir / "hlink_to_omarchy"
-    private, public = ensure_ed25519_key(key_path, "hermes-link-studio-executor")
+    key_path = Path(args.key).expanduser() if args.key else ssh_dir / "hermachy_to_omarchy"
+    private, public = ensure_ed25519_key(key_path, "hermachy-studio-executor")
     output_dir = Path(args.output_dir).expanduser()
     _ensure_private_directory(output_dir)
     handoff = output_dir / "studio-executor.pub"
@@ -327,7 +314,7 @@ def omarchy_install(args: argparse.Namespace) -> int:
     bin_dir = _absolute_runtime_path(args.bin_dir, "bin_dir") if args.bin_dir else default_bin
     config_dir = default_config
     artifact = Path(args.artifact).expanduser()
-    gateway_artifact = artifact.parent / "hlink-gateway"
+    gateway_artifact = artifact.parent / "hermachy-gateway"
     tui_dir = artifact.parent / "tui"
     for required in (artifact, gateway_artifact, tui_dir / "entry.mjs"):
         if not required.is_file():
@@ -339,7 +326,7 @@ def omarchy_install(args: argparse.Namespace) -> int:
     port = _safe_port(args.studio_port, "studio_port")
     executor_key = _read_public_key(
         Path(args.studio_executor_public_key).expanduser(),
-        "hermes-link-studio-executor",
+        "hermachy-studio-executor",
     )
     _ensure_private_directory(ssh_dir)
     _ensure_private_directory(config_dir)
@@ -347,15 +334,14 @@ def omarchy_install(args: argparse.Namespace) -> int:
     key_path = (
         _absolute_runtime_path(args.client_key, "client_key")
         if args.client_key
-        else ssh_dir / "hlink_to_morpheus"
+        else ssh_dir / "hermachy_to_morpheus"
     )
-    private, public = ensure_ed25519_key(key_path, "hermes-link-omarchy-client")
-    client_path = bin_dir / "hlink"
+    private, public = ensure_ed25519_key(key_path, "hermachy-omarchy-client")
+    client_path = bin_dir / "hermachy"
     install_executable(artifact, client_path)
-    _install_alias(bin_dir / "hermes-link", "hlink")
     # Native TUI assets travel with the zipapps in a release directory.
-    install_executable(gateway_artifact, bin_dir / "hlink-gateway")
-    target_tui = Path.home() / ".local" / "share" / "hlink" / "tui"
+    install_executable(gateway_artifact, bin_dir / "hermachy-gateway")
+    target_tui = Path.home() / ".local" / "share" / "hermachy" / "tui"
     target_tui.mkdir(parents=True, exist_ok=True)
     for source in tui_dir.iterdir():
         if source.is_file():
@@ -363,7 +349,7 @@ def omarchy_install(args: argparse.Namespace) -> int:
 
     admin_path = None
     if args.admin_artifact:
-        admin_path = bin_dir / "hlink-admin"
+        admin_path = bin_dir / "hermachy-admin"
         install_executable(Path(args.admin_artifact).expanduser(), admin_path)
 
     upsert_marked_block(
@@ -386,7 +372,6 @@ def omarchy_install(args: argparse.Namespace) -> int:
             {
                 "status": "installed",
                 "client": str(client_path),
-                "alias": str(bin_dir / "hermes-link"),
                 "config": str(config_path),
                 "client_public_key": str(public),
                 "admin": str(admin_path) if admin_path else None,
@@ -414,23 +399,23 @@ def studio_finish(args: argparse.Namespace) -> int:
     bin_dir.mkdir(parents=True, exist_ok=True)
 
     artifact = Path(args.artifact).expanduser()
-    server_path = bin_dir / "hlink-server"
+    server_path = bin_dir / "hermachy-server"
     if not artifact.is_file():
         raise AdminError(f"artifact not found: {artifact}")
     client_key = _read_public_key(
-        Path(args.client_public_key).expanduser(), "hermes-link-omarchy-client"
+        Path(args.client_public_key).expanduser(), "hermachy-omarchy-client"
     )
 
     executor_key = (
         _absolute_runtime_path(args.executor_key, "executor_key")
         if args.executor_key
-        else ssh_dir / "hlink_to_omarchy"
+        else ssh_dir / "hermachy_to_omarchy"
     )
     executor_public = executor_key.with_name(executor_key.name + ".pub")
     if not executor_key.is_file() or not executor_public.is_file():
         raise AdminError("Studio execution key is missing; run studio-prepare first")
     executor_key, executor_public = ensure_ed25519_key(
-        executor_key, "hermes-link-studio-executor"
+        executor_key, "hermachy-studio-executor"
     )
 
     hermes_source_root = Path(args.hermes_source_root).expanduser()
@@ -511,9 +496,9 @@ def revoke(args: argparse.Namespace) -> int:
 
 def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(
-        prog="hlink-admin", description="Install and revoke Hermes Link endpoints"
+        prog="hermachy-admin", description="Install and revoke Hermachy endpoints"
     )
-    result.add_argument("--version", action="version", version=f"Hermes Link admin {__version__}")
+    result.add_argument("--version", action="version", version=f"Hermachy admin {__version__}")
     commands = result.add_subparsers(dest="command", required=True)
 
     prepare = commands.add_parser("studio-prepare", help="create the Studio execution key")
@@ -559,7 +544,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         args = parser().parse_args(argv)
         return int(args.handler(args))
     except (AdminError, OSError, subprocess.SubprocessError) as exc:
-        print(f"hlink-admin: {exc}", file=sys.stderr)
+        print(f"hermachy-admin: {exc}", file=sys.stderr)
         return 2
 
 

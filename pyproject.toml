@@ -1,14 +1,14 @@
 [project]
-name = "hermes-link"
-version = "0.2.1"
+name = "hermachy"
+version = "0.3.0"
 description = "Remote Hermes TUI with local SSH execution"
 requires-python = ">=3.9"
 license = {text = "MIT"}
 
 [project.urls]
-Homepage = "https://github.com/kzndk/hlink"
-Repository = "https://github.com/kzndk/hlink"
-Issues = "https://github.com/kzndk/hlink/issues"
+Homepage = "https://github.com/kzndk/hermachy"
+Repository = "https://github.com/kzndk/hermachy"
+Issues = "https://github.com/kzndk/hermachy/issues"
 
-[tool.hermes-link]
+[tool.hermachy]
 protocol-version = 1

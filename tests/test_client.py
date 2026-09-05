@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from unittest import mock
 
-from hermes_link.client import (
+from hermachy.client import (
     ClientConfig,
     ClientError,
     build_request,
@@ -17,7 +17,7 @@ from hermes_link.client import (
     check_remote,
     resolve_session,
 )
-from hermes_link.protocol import decode_request
+from hermachy.protocol import decode_request
 
 
 class ClientTests(unittest.TestCase):
@@ -39,10 +39,10 @@ class ClientTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             with mock.patch.dict(os.environ, {"HOME": str(root)}):
-                key = root / ".ssh" / "hlink_key"
+                key = root / ".ssh" / "hermachy_key"
                 key.parent.mkdir()
                 key.write_text("key", encoding="utf-8")
-                path = self.write_config(root, identity_file="~/.ssh/hlink_key")
+                path = self.write_config(root, identity_file="~/.ssh/hermachy_key")
                 config = load_client_config(path)
         self.assertEqual(config.identity_file, key)
         self.assertEqual(config.studio_port, 22)
@@ -80,7 +80,7 @@ class ClientTests(unittest.TestCase):
         config = ClientConfig(
             studio_host="morpheus.example-tailnet.ts.net",
             studio_user="studio-user",
-            identity_file=Path("/home/u/.ssh/hlink"),
+            identity_file=Path("/home/u/.ssh/hermachy"),
             studio_port=2222,
         )
         request = build_request(parse_args(["--resume", "abc"]), Path("/home/u/p"))
@@ -93,7 +93,7 @@ class ClientTests(unittest.TestCase):
         self.assertIn("ServerAliveInterval=15", argv)
         self.assertIn("ServerAliveCountMax=3", argv)
         self.assertEqual(argv[-2], "studio-user@morpheus.example-tailnet.ts.net")
-        self.assertTrue(argv[-1].startswith("hlink-v1 "))
+        self.assertTrue(argv[-1].startswith("hermachy-v1 "))
         decoded = decode_request(argv[-1].split(" ", 1)[1])
         self.assertEqual(decoded.cwd, "/home/u/p")
         self.assertEqual(decoded.action, "resume")
@@ -130,9 +130,15 @@ class ClientTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             config_path = self.write_config(root)
+            entry = root / "entry.mjs"
+            gateway = root / "hermachy-gateway"
+            entry.touch()
+            gateway.touch()
             with mock.patch.dict(
-                os.environ, {"HLINK_CLIENT_CONFIG": str(config_path)}, clear=False
-            ), mock.patch("hermes_link.client.subprocess.run") as run:
+                os.environ, {"HERMACHY_CLIENT_CONFIG": str(config_path)}, clear=False
+            ), mock.patch("hermachy.client.ui_paths", return_value=(entry, gateway)), \
+                    mock.patch("hermachy.client.shutil.which", return_value="/usr/bin/node"), \
+                    mock.patch("hermachy.client.subprocess.run") as run:
                 run.return_value = subprocess.CompletedProcess([], 17)
                 result = main(["--doctor", "--cwd", directory])
         self.assertEqual(result, 2)
@@ -146,17 +152,17 @@ class ClientTests(unittest.TestCase):
         config = ClientConfig('host', 'user', Path('/key'))
         for response in ['null', '[]', '{}', '{"status":"error"}', 'bad json']:
             with self.subTest(response=response), mock.patch(
-                'hermes_link.client.subprocess.run',
+                'hermachy.client.subprocess.run',
                 return_value=subprocess.CompletedProcess([], 0, response, ''),
             ), self.assertRaises(ClientError):
                 check_remote(config, '/workspace')
 
     def test_bad_session_response_is_a_client_error(self) -> None:
-        from hermes_link.protocol import LaunchRequest
+        from hermachy.protocol import LaunchRequest
         config = ClientConfig('host', 'user', Path('/key'))
         for response in ['null', '[]', '{}', '{"session":null}']:
             with self.subTest(response=response), mock.patch(
-                'hermes_link.client.subprocess.run',
+                'hermachy.client.subprocess.run',
                 return_value=subprocess.CompletedProcess([], 0, response, ''),
             ), self.assertRaises(ClientError):
                 resolve_session(config, LaunchRequest('/workspace', 'resolve'))
@@ -164,9 +170,9 @@ class ClientTests(unittest.TestCase):
     def test_failed_startup_check_does_not_launch_ui(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = self.write_config(Path(directory))
-            with mock.patch.dict(os.environ, {'HLINK_CLIENT_CONFIG': str(path)}), mock.patch(
-                'hermes_link.client.check_remote', side_effect=ClientError('incompatible runtime')
-            ), mock.patch('hermes_link.client.prepare_local_ui') as prepare:
+            with mock.patch.dict(os.environ, {'HERMACHY_CLIENT_CONFIG': str(path)}), mock.patch(
+                'hermachy.client.check_remote', side_effect=ClientError('incompatible runtime')
+            ), mock.patch('hermachy.client.prepare_local_ui') as prepare:
                 self.assertEqual(main([]), 2)
                 prepare.assert_not_called()
 
@@ -185,8 +191,8 @@ class ClientTests(unittest.TestCase):
             config_path = self.write_config(root)
             Path(json.loads(config_path.read_text())["identity_file"]).unlink()
             with mock.patch.dict(
-                os.environ, {"HLINK_CLIENT_CONFIG": str(config_path)}, clear=False
-            ), mock.patch("hermes_link.client.subprocess.run") as run:
+                os.environ, {"HERMACHY_CLIENT_CONFIG": str(config_path)}, clear=False
+            ), mock.patch("hermachy.client.subprocess.run") as run:
                 result = main(["--cwd", directory])
         self.assertEqual(result, 2)
         run.assert_not_called()

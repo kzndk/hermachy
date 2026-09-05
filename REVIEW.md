@@ -1,6 +1,6 @@
-# Hlink stability review — 2026-09-05
+# Hermachy stability review — 2026-09-05
 
-The reviewed release is **0.2.1**, prepared in `dist/`. The release includes the
+The reviewed release is **0.3.0**, prepared in `dist/`. The release includes the
 previous crash and executor-v2 fixes. Machine-specific installation details,
 backup locations and subsequent live verification are recorded separately in
 the local `DEPLOYMENT.json` when deployed.
@@ -17,9 +17,9 @@ the local `DEPLOYMENT.json` when deployed.
 | Medium | Symlinked working directories could disagree with the executor's canonical path. Relative client config paths could resolve differently after `--worktree`. | The working directory and inherited client-config path are canonicalized locally. |
 | Medium | An incomplete native release could replace a working client while leaving its gateway/assets missing or stale. Invalid server-runtime settings could replace a working server before validation failed. | Client release prerequisites and server configuration inputs are checked before replacing the corresponding executable. Regression tests verify preservation on these failures. |
 
-Relevant implementation: [gateway](src/hermes_link/gateway.py),
-[client](src/hermes_link/client.py), [server](src/hermes_link/server.py),
-[installer](src/hermes_link/admin.py), [builder](scripts/build_zipapps.py).
+Relevant implementation: [gateway](src/hermachy/gateway.py),
+[client](src/hermachy/client.py), [server](src/hermachy/server.py),
+[installer](src/hermachy/admin.py), [builder](scripts/build_zipapps.py).
 
 ## Validation
 
@@ -48,11 +48,12 @@ python3 scripts/live_check.py --session EXISTING_SESSION
 
 ## Scope and remaining limits
 
-This is a review of Hlink's Python integration, launch protocol, process lifecycle,
+This is a review of Hermachy's Python integration, launch protocol, process lifecycle,
 configuration validation, packaging and installation. The native renderer is the
 existing vendor bundle with its original license/provenance; it was syntax-checked
 and provenance-verified, not exhaustively audited. The remote Hermes
-runtime and its existing uncommitted changes were inspected but not modified.
+runtime and its existing uncommitted changes were inspected in the original
+stability review. The subsequent integration rename is described below.
 
 The review-stage live check used the previously installed remote server. The new
 server's continuation change also passed an isolated executable integration test.
@@ -61,7 +62,23 @@ No full model/tool turn, interactive rendering soak,
 network-outage recovery soak, or exhaustive Hermes tool-routing audit was run.
 These results support the specific fixes; they do not guarantee an absence of bugs.
 
-The source tree includes native integration recovered from installed archives,
-so its Git diff against the older checkout includes pre-existing deployed code.
-Use this reviewed tree to rebuild the release; the original checkout under
-`~/.local/share/hlink` remains older. No upstream reports were made.
+The source tree includes native integration recovered from installed archives.
+Use this maintained tree to rebuild the release. No upstream crash reports were made.
+
+## Hermachy rename in 0.3.0
+
+Commands, package imports, configuration and state paths, SSH key names, managed
+key markers, environment variables, and the forced-command protocol use the
+Hermachy name. Alias installation has been removed. The remote Hermes integration
+must use the matching `HERMACHY_CONTROL_VERSION` and safe-executor guard.
+Upgrade both endpoints together; previous endpoint namespaces are unsupported.
+The doctor failure test now uses temporary UI fixtures instead of an installed
+renderer, so it runs independently of machine setup.
+
+Verification of 0.3.0: all 70 local tests and 307 focused remote Hermes tests
+passed (two remote tests skipped). The broader gateway file passed 632 tests;
+two failures also reproduce on the pre-rename baseline with the same existing
+local edits. That comparison used a process-local open-file limit of 4096
+because the Mac default of 256 exhausted descriptors during the broad suite.
+Installed doctor, existing-session resolution, capability RPC, and EOF shutdown
+passed after both endpoints were migrated. Existing remote edits were preserved.

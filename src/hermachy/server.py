@@ -1,4 +1,4 @@
-"""Mac Studio forced-command launcher for Hermes Link."""
+"""Mac Studio forced-command launcher for Hermachy."""
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ from typing import Any, Mapping, Sequence
 from . import __version__
 from .protocol import LaunchRequest, ProtocolError, parse_forced_command
 
-DEFAULT_CONFIG_PATH = Path("~/.config/hermes-link/server.json")
+DEFAULT_CONFIG_PATH = Path("~/.config/hermachy/server.json")
 SAFE_EXECUTOR_CAPABILITY_VERSION = "2"
 _HERMES_ENTRYPOINT = "from hermes_cli.main import main; raise SystemExit(main())"
 _REQUIRED_CONFIG_FIELDS = frozenset(
@@ -75,7 +75,7 @@ def _absolute_path(value: Any, field: str) -> Path:
 
 
 def _server_config_path() -> Path:
-    configured = os.environ.get("HLINK_SERVER_CONFIG")
+    configured = os.environ.get("HERMACHY_SERVER_CONFIG")
     return Path(configured).expanduser() if configured else DEFAULT_CONFIG_PATH.expanduser()
 
 
@@ -169,7 +169,7 @@ def build_hermes_env(
     env = _runtime_python_env(config, base_env)
     env.update(request.env or {})
     env.pop("SSH_ORIGINAL_COMMAND", None)
-    env.pop("HLINK_SERVER_CONFIG", None)
+    env.pop("HERMACHY_SERVER_CONFIG", None)
     env.update(
         {
             "HERMES_TUI": "1",
@@ -185,23 +185,23 @@ def build_hermes_env(
             "TERMINAL_SSH_PERSISTENT": "true",
             # Stock Hermes currently rewrites terminal env from persistent
             # config, syncs state into SSH backends, and can use ambient keys.
-            # Hermes Link requires the comprehensive safe-executor capability.
+            # Hermachy requires the comprehensive safe-executor capability.
             "TERMINAL_SYNC_REMOTE_STATE": "false",
-            "HLINK_REQUIRE_SAFE_EXECUTOR": "1",
+            "HERMACHY_REQUIRE_SAFE_EXECUTOR": "1",
         }
     )
     return env
 
 
 def verify_safe_executor_capability(config: ServerConfig) -> None:
-    """Fail closed unless Hermes supports Hlink's complete execution boundary."""
+    """Fail closed unless Hermes supports Hermachy's complete execution boundary."""
 
     python = _runtime_python(config)
     if not python.is_file() or not os.access(python, os.X_OK):
         raise ServerError(f"Hermes runtime Python is missing: {python}")
     probe = (
-        "from tools.environments.ssh import HERMES_LINK_CONTROL_VERSION;"
-        "print(HERMES_LINK_CONTROL_VERSION)"
+        "from tools.environments.ssh import HERMACHY_CONTROL_VERSION;"
+        "print(HERMACHY_CONTROL_VERSION)"
     )
     try:
         completed = subprocess.run(
@@ -220,7 +220,7 @@ def verify_safe_executor_capability(config: ServerConfig) -> None:
         or completed.stdout.strip() != SAFE_EXECUTOR_CAPABILITY_VERSION
     ):
         raise ServerError(
-            f"installed Hermes must support Hermes Link safe-executor capability v{SAFE_EXECUTOR_CAPABILITY_VERSION}; "
+            f"installed Hermes must support Hermachy safe-executor capability v{SAFE_EXECUTOR_CAPABILITY_VERSION}; "
             "refusing an unsafe or misrouted execution session"
         )
 
@@ -316,7 +316,7 @@ def run_doctor(config: ServerConfig, request: LaunchRequest) -> int:
 
         report = {
             "status": "ok",
-            "product": "Hermes Link",
+            "product": "Hermachy",
             "version": __version__,
             "studio": {
                 "hostname": socket.gethostname(),
@@ -331,7 +331,7 @@ def run_doctor(config: ServerConfig, request: LaunchRequest) -> int:
     except (OSError, subprocess.SubprocessError, json.JSONDecodeError, ServerError) as exc:
         print(
             json.dumps(
-                {"status": "error", "product": "Hermes Link", "error": str(exc)},
+                {"status": "error", "product": "Hermachy", "error": str(exc)},
                 sort_keys=True,
             )
         )
@@ -386,7 +386,7 @@ try:
             if sid:
                 break
     if not sid:
-        print("hlink: no matching remote session", file=sys.stderr)
+        print("hermachy: no matching remote session", file=sys.stderr)
         raise SystemExit(1)
     print(json.dumps({"session": db.get_compression_tip(sid) or sid}))
 finally:
@@ -410,13 +410,13 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     arguments = list(argv if argv is not None else sys.argv[1:])
     if arguments == ["--version"]:
-        print(f"Hermes Link server {__version__}")
+        print(f"Hermachy server {__version__}")
         return 0
     if arguments in (["--help"], ["-h"]):
-        print("usage: hlink-server [--version]")
+        print("usage: hermachy-server [--version]")
         return 0
     if arguments:
-        print("hlink-server: command-line arguments are not accepted", file=sys.stderr)
+        print("hermachy-server: command-line arguments are not accepted", file=sys.stderr)
         return 2
 
     try:
@@ -434,12 +434,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             os.execvpe(command[0], command, build_hermes_env(config, request))
             raise ServerError("Hermes gateway unexpectedly returned")
         if not has_interactive_tty():
-            raise ServerError("interactive Hermes Link sessions require an SSH PTY")
+            raise ServerError("interactive Hermachy sessions require an SSH PTY")
         command = build_hermes_argv(config, request)
         os.execvpe(command[0], command, build_hermes_env(config, request))
         raise ServerError("Hermes process unexpectedly returned")
     except (ProtocolError, ServerError, OSError, subprocess.SubprocessError) as exc:
-        print(f"hlink-server: {exc}", file=sys.stderr)
+        print(f"hermachy-server: {exc}", file=sys.stderr)
         return 2
 
 

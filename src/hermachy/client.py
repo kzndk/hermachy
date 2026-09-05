@@ -1,4 +1,4 @@
-"""Omarchy-side Hermes Link client."""
+"""Omarchy-side Hermachy client."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ from typing import Any, Sequence
 from . import __version__
 from .protocol import LaunchRequest, ProtocolError, encode_request
 
-DEFAULT_CONFIG_PATH = Path("~/.config/hermes-link/client.json")
+DEFAULT_CONFIG_PATH = Path("~/.config/hermachy/client.json")
 _REQUIRED_CONFIG_FIELDS = frozenset({"studio_host", "studio_user", "identity_file"})
 _ALLOWED_CONFIG_FIELDS = _REQUIRED_CONFIG_FIELDS | {"studio_port"}
 REMOTE_CHECK_TIMEOUT = 60
@@ -44,7 +44,7 @@ def _safe_config_text(value: Any, field: str) -> str:
 
 
 def _config_path() -> Path:
-    configured = os.environ.get("HLINK_CLIENT_CONFIG")
+    configured = os.environ.get("HERMACHY_CLIENT_CONFIG")
     return Path(configured).expanduser() if configured else DEFAULT_CONFIG_PATH.expanduser()
 
 
@@ -117,7 +117,7 @@ def build_ssh_argv(config: ClientConfig, request: LaunchRequest) -> list[str]:
         "-p",
         str(config.studio_port),
         f"{config.studio_user}@{config.studio_host}",
-        f"hlink-v1 {encode_request(request)}",
+        f"hermachy-v1 {encode_request(request)}",
     ]
 
 
@@ -125,9 +125,9 @@ def parser() -> argparse.ArgumentParser:
     # Vendored verbatim from the same Hermes revision as the native UI bundle.
     from .hermes_parser import build_top_level_parser
     result, _, chat = build_top_level_parser()
-    result.prog = "hlink"
+    result.prog = "hermachy"
     result.description = "Local Hermes TUI · remote Hermes intelligence · local Omarchy execution"
-    result.epilog = "Run hlink in a project, or hlink --in DIR. Use /help inside the native TUI."
+    result.epilog = "Run hermachy in a project, or hermachy --in DIR. Use /help inside the native TUI."
     for target in (result, chat):
         target.add_argument("--cwd", help="Alias for --in: local working directory",
                             default=argparse.SUPPRESS)
@@ -236,8 +236,8 @@ def check_remote(config: ClientConfig, cwd: str) -> dict[str, Any]:
 
 
 def ui_paths() -> tuple[Path, Path]:
-    root = Path(os.environ.get("HLINK_UI_DIR", "~/.local/share/hlink/tui")).expanduser()
-    gateway = Path(os.environ.get("HLINK_GATEWAY_COMMAND", "~/.local/bin/hlink-gateway")).expanduser()
+    root = Path(os.environ.get("HERMACHY_UI_DIR", "~/.local/share/hermachy/tui")).expanduser()
+    gateway = Path(os.environ.get("HERMACHY_GATEWAY_COMMAND", "~/.local/bin/hermachy-gateway")).expanduser()
     return root / "entry.mjs", gateway
 
 
@@ -246,22 +246,22 @@ def prepare_local_ui(args: argparse.Namespace, config: ClientConfig,
     entry, gateway = ui_paths()
     node = shutil.which("node")
     if not node or not entry.is_file() or not gateway.is_file():
-        raise ClientError("local Hermes UI is missing; install the TUI bundle, Node.js, and hlink-gateway")
-    # Hlink owns these launch settings. Do not inherit an unrelated Hermes
+        raise ClientError("local Hermes UI is missing; install the TUI bundle, Node.js, and hermachy-gateway")
+    # Hermachy owns these launch settings. Do not inherit an unrelated Hermes
     # profile, gateway URL, or a stale resume flag from the user's shell.
     env = {k: v for k, v in os.environ.items()
-           if not k.startswith(("HERMES_", "HLINK_REQUEST", "HLINK_REASONING"))}
-    state = Path("~/.local/state/hlink").expanduser()
+           if not k.startswith(("HERMES_", "HERMACHY_REQUEST", "HERMACHY_REASONING"))}
+    state = Path("~/.local/state/hermachy").expanduser()
     state.mkdir(parents=True, exist_ok=True, mode=0o700)
     env.update(HERMES_HOME=str(state), HERMES_CWD=request.cwd,
                HERMES_PYTHON=str(gateway), HERMES_PYTHON_SRC_ROOT=str(entry.parent),
-               NODE_ENV="production", HLINK_REQUEST=encode_request(request),
-               HLINK_CLIENT_CONFIG=str(_config_path().resolve()))
+               NODE_ENV="production", HERMACHY_REQUEST=encode_request(request),
+               HERMACHY_CLIENT_CONFIG=str(_config_path().resolve()))
     reasoning = getattr(args, "reasoning", None)
     if reasoning:
         if reasoning not in {"none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"}:
             raise ClientError("invalid reasoning effort")
-        env["HLINK_REASONING"] = reasoning
+        env["HERMACHY_REASONING"] = reasoning
     if args.resume or args.continue_last is not None:
         selector = args.resume or (args.continue_last if isinstance(args.continue_last, str) else None)
         env["HERMES_TUI_RESUME"] = resolve_session(
@@ -284,11 +284,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         args = parse_args(argv)
         if args.version:
-            print(f"Hermes Link {__version__} · local Hermes TUI / remote agent")
+            print(f"Hermachy {__version__} · local Hermes TUI / remote agent")
             return 0
         for attr in ("cli", "tui_dev", "oneshot", "oneshot_exit", "usage_file", "run_budget", "source"):
             if getattr(args, attr, None):
-                raise ClientError(f"{attr.replace('_', '-')} is a non-TUI/development option; hlink runs the native TUI")
+                raise ClientError(f"{attr.replace('_', '-')} is a non-TUI/development option; hermachy runs the native TUI")
         if getattr(args, "create_if_missing", False):
             raise ClientError("use /new followed by /title in the TUI to create a named session")
         config = load_client_config(_config_path())
@@ -309,7 +309,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.worktree:
             root = subprocess.run(["git", "-C", cwd, "rev-parse", "--show-toplevel"],
                                   check=True, capture_output=True, text=True).stdout.strip()
-            target = Path(root).parent / (Path(root).name + "-hlink-" + uuid.uuid4().hex[:8])
+            target = Path(root).parent / (Path(root).name + "-hermachy-" + uuid.uuid4().hex[:8])
             subprocess.run(["git", "-C", root, "worktree", "add", "--detach", str(target)], check=True)
             cwd = str(target)
             print(f"Local worktree: {cwd}", file=sys.stderr)
@@ -318,7 +318,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         command, env = prepare_local_ui(args, config, request)
         return subprocess.run(command, cwd=cwd, env=env, check=False).returncode
     except (ClientError, ProtocolError, OSError, subprocess.SubprocessError) as exc:
-        print(f"hlink: {exc}", file=sys.stderr)
+        print(f"hermachy: {exc}", file=sys.stderr)
         return 2
     except KeyboardInterrupt:
         return 130

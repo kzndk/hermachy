@@ -87,16 +87,16 @@ def main() -> int:
     # The upstream GatewayClient treats this executable like Python. Accept
     # exactly its gateway invocation, never arbitrary interpreter arguments.
     if sys.argv[1:] != ["-m", "tui_gateway.entry"]:
-        print("hlink-gateway: expected -m tui_gateway.entry", file=sys.stderr)
+        print("hermachy-gateway: expected -m tui_gateway.entry", file=sys.stderr)
         return 2
     try:
-        request = decode_request(os.environ.get("HLINK_REQUEST", ""))
+        request = decode_request(os.environ.get("HERMACHY_REQUEST", ""))
         if request.action != "gateway":
             raise ProtocolError("expected a gateway request")
         config = load_client_config(_config_path())
         child = subprocess.Popen(build_ssh_argv(config, request), stdin=subprocess.PIPE)
     except (ClientError, ProtocolError, OSError) as exc:
-        print(f"hlink-gateway: {exc}", file=sys.stderr)
+        print(f"hermachy-gateway: {exc}", file=sys.stderr)
         return 2
 
     requested_signal = 0
@@ -110,14 +110,14 @@ def main() -> int:
     result = None
     try:
         try:
-            result = relay_input(child, request.cwd, os.environ.get("HLINK_REASONING"),
+            result = relay_input(child, request.cwd, os.environ.get("HERMACHY_REASONING"),
                                  lambda: bool(requested_signal))
         except BrokenPipeError:
             # The child may close its pipe just before its exit becomes visible.
             # Reap it below and preserve its actual status.
             pass
         except (OSError, ValueError, TypeError, RecursionError) as exc:
-            print(f"hlink-gateway: transport input closed: {exc}", file=sys.stderr)
+            print(f"hermachy-gateway: transport input closed: {exc}", file=sys.stderr)
             result = 2
     finally:
         try:

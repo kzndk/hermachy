@@ -1,1 +1,1 @@
-"""Hermes Link test package."""
+"""Hermachy test package."""

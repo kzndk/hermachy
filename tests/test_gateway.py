@@ -13,13 +13,13 @@ DRIVER = '''
 import sys
 from types import SimpleNamespace
 sys.path.insert(0, sys.argv[1])
-from hermes_link import gateway
+from hermachy import gateway
 child_script = sys.argv[2]
 gateway.SHUTDOWN_TIMEOUT = 0.2
 gateway.decode_request = lambda _: SimpleNamespace(action='gateway', cwd='/workspace')
 gateway.load_client_config = lambda _: None
 gateway.build_ssh_argv = lambda *_: [sys.executable, '-I', '-c', child_script]
-sys.argv = ['hlink-gateway', '-m', 'tui_gateway.entry']
+sys.argv = ['hermachy-gateway', '-m', 'tui_gateway.entry']
 raise SystemExit(gateway.main())
 '''
 
@@ -30,7 +30,7 @@ def disable_core():
 
 class GatewayTests(unittest.TestCase):
     def spawn(self, script):
-        env = dict(os.environ, HLINK_REASONING='high')
+        env = dict(os.environ, HERMACHY_REASONING='high')
         proc = subprocess.Popen(
             [sys.executable, '-I', '-c', DRIVER, ARCHIVE, script],
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,

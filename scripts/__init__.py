@@ -1,1 +1,1 @@
-"""Build helpers for Hermes Link."""
+"""Build helpers for Hermachy."""

@@ -8,8 +8,8 @@ import tempfile
 import unittest
 from unittest import mock
 
-from hermes_link.protocol import LaunchRequest, encode_request
-from hermes_link.server import (
+from hermachy.protocol import LaunchRequest, encode_request
+from hermachy.server import (
     ServerConfig,
     ServerError,
     build_executor_ssh_argv,
@@ -114,7 +114,7 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(env["TERMINAL_SSH_KEY"], "/keys/executor")
         self.assertEqual(env["TERMINAL_SSH_PERSISTENT"], "true")
         self.assertEqual(env["TERMINAL_SYNC_REMOTE_STATE"], "false")
-        self.assertEqual(env["HLINK_REQUIRE_SAFE_EXECUTOR"], "1")
+        self.assertEqual(env["HERMACHY_REQUIRE_SAFE_EXECUTOR"], "1")
         self.assertEqual(env["PYTHONPATH"], "/opt/hermes-agent")
         self.assertNotIn("PYTHONHOME", env)
 
@@ -192,9 +192,9 @@ class ServerTests(unittest.TestCase):
             subprocess.CompletedProcess([], 0, json.dumps(executor) + "\n", ""),
         ]
         output = io.StringIO()
-        with mock.patch("hermes_link.server.subprocess.run", side_effect=completions), mock.patch(
-            "hermes_link.server.socket.gethostname", return_value="Morpheus"
-        ), mock.patch("hermes_link.server.getpass.getuser", return_value="studio-user"), mock.patch(
+        with mock.patch("hermachy.server.subprocess.run", side_effect=completions), mock.patch(
+            "hermachy.server.socket.gethostname", return_value="Morpheus"
+        ), mock.patch("hermachy.server.getpass.getuser", return_value="studio-user"), mock.patch(
             "sys.stdout", output
         ):
             result = run_doctor(config, LaunchRequest("/home/u/p", "doctor"))
@@ -217,12 +217,12 @@ class ServerTests(unittest.TestCase):
             ]
             for completed in failures:
                 with self.subTest(completed=completed), mock.patch(
-                    "hermes_link.server.subprocess.run", return_value=completed
+                    "hermachy.server.subprocess.run", return_value=completed
                 ), self.assertRaisesRegex(ServerError, "safe-executor"):
                     verify_safe_executor_capability(config)
 
             with mock.patch(
-                "hermes_link.server.subprocess.run",
+                "hermachy.server.subprocess.run",
                 return_value=subprocess.CompletedProcess([], 0, SAFE_EXECUTOR_CAPABILITY_VERSION + "\n", ""),
             ) as capability_probe:
                 verify_safe_executor_capability(config)
@@ -251,7 +251,7 @@ class ServerTests(unittest.TestCase):
             ]
             output = io.StringIO()
             with self.subTest(report=report), mock.patch(
-                "hermes_link.server.subprocess.run", side_effect=completions
+                "hermachy.server.subprocess.run", side_effect=completions
             ), mock.patch("sys.stdout", output):
                 self.assertEqual(run_doctor(config, LaunchRequest("/p", "doctor")), 1)
             self.assertEqual(json.loads(output.getvalue())["status"], "error")
@@ -267,13 +267,13 @@ class ServerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             path, _ = self.make_config(Path(directory))
             env = {
-                "SSH_ORIGINAL_COMMAND": f"hlink-v1 {encode_request(request)}",
-                "HLINK_SERVER_CONFIG": str(path),
+                "SSH_ORIGINAL_COMMAND": f"hermachy-v1 {encode_request(request)}",
+                "HERMACHY_SERVER_CONFIG": str(path),
             }
             with mock.patch.dict(os.environ, env, clear=True), mock.patch(
-                "hermes_link.server.has_interactive_tty", return_value=False
+                "hermachy.server.has_interactive_tty", return_value=False
             ), mock.patch(
-                "hermes_link.server.verify_safe_executor_capability", return_value=None
+                "hermachy.server.verify_safe_executor_capability", return_value=None
             ):
                 self.assertEqual(main([]), 2)
 
@@ -282,15 +282,15 @@ class ServerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             path, config = self.make_config(Path(directory))
             env = {
-                "SSH_ORIGINAL_COMMAND": f"hlink-v1 {encode_request(request)}",
-                "HLINK_SERVER_CONFIG": str(path),
+                "SSH_ORIGINAL_COMMAND": f"hermachy-v1 {encode_request(request)}",
+                "HERMACHY_SERVER_CONFIG": str(path),
                 "HOME": "/Users/u",
             }
             with mock.patch.dict(os.environ, env, clear=True), mock.patch(
-                "hermes_link.server.has_interactive_tty", return_value=True
+                "hermachy.server.has_interactive_tty", return_value=True
             ), mock.patch(
-                "hermes_link.server.verify_safe_executor_capability", return_value=None
-            ), mock.patch("hermes_link.server.os.execvpe", side_effect=RuntimeError("stop")) as execute:
+                "hermachy.server.verify_safe_executor_capability", return_value=None
+            ), mock.patch("hermachy.server.os.execvpe", side_effect=RuntimeError("stop")) as execute:
                 with self.assertRaisesRegex(RuntimeError, "stop"):
                     main([])
         argv = execute.call_args.args[1]

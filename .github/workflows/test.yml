@@ -28,6 +28,6 @@ jobs:
         run: python scripts/build_zipapps.py
       - name: Smoke-test executables
         run: |
-          ./dist/hlink --version
-          ./dist/hlink-server --version
-          ./dist/hlink-admin --help >/dev/null
+          ./dist/hermachy --version
+          ./dist/hermachy-server --version
+          ./dist/hermachy-admin --help >/dev/null

@@ -1,4 +1,4 @@
-"""Versioned, shell-safe launch protocol for Hermes Link."""
+"""Versioned, shell-safe launch protocol for Hermachy."""
 
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ _ALLOWED_FIELDS = _REQUIRED_FIELDS | {"session", "env"}
 
 
 class ProtocolError(ValueError):
-    """Raised when a Hermes Link launch request is invalid."""
+    """Raised when a Hermachy launch request is invalid."""
 
 
 @dataclass(frozen=True)
@@ -194,6 +194,6 @@ def parse_forced_command(command: str | None) -> LaunchRequest:
         words = shlex.split(command or "", posix=True)
     except ValueError as exc:
         raise ProtocolError("malformed forced command") from exc
-    if len(words) != 2 or words[0] != "hlink-v1":
-        raise ProtocolError("expected: hlink-v1 <request>")
+    if len(words) != 2 or words[0] != "hermachy-v1":
+        raise ProtocolError("expected: hermachy-v1 <request>")
     return decode_request(words[1])

@@ -13,7 +13,7 @@ class DocumentationTests(unittest.TestCase):
     def test_public_readme_links_complete_setup_guide(self) -> None:
         text = README.read_text(encoding="utf-8")
         self.assertIn("docs/OMARCHY_REMOTE_HERMES.md", text)
-        self.assertIn("https://github.com/kzndk/hlink", text)
+        self.assertIn("https://github.com/kzndk/hermachy", text)
         self.assertIn("public pre-alpha and fail-closed", text)
 
     def test_setup_guide_covers_install_diagnose_use_and_revoke(self) -> None:
@@ -22,12 +22,12 @@ class DocumentationTests(unittest.TestCase):
             "studio-prepare",
             "omarchy-install",
             "studio-finish",
-            "hlink --doctor",
-            "hlink --continue",
-            "hlink --resume",
+            "hermachy --doctor",
+            "hermachy --continue",
+            "hermachy --resume",
             "revoke --side studio",
             "revoke --side omarchy",
-            "HERMES_LINK_CONTROL_VERSION",
+            "HERMACHY_CONTROL_VERSION",
             "TERMINAL_SYNC_REMOTE_STATE=false",
         )
         for value in required:

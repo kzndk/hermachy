@@ -7,8 +7,8 @@ import sys
 import tempfile
 import unittest
 
-from hermes_link.protocol import LaunchRequest, encode_request
-from hermes_link.server import SAFE_EXECUTOR_CAPABILITY_VERSION
+from hermachy.protocol import LaunchRequest, encode_request
+from hermachy.server import SAFE_EXECUTOR_CAPABILITY_VERSION
 from scripts.build_zipapps import build_one
 
 
@@ -26,7 +26,7 @@ class ResolutionTests(unittest.TestCase):
             module.mkdir(parents=True)
             (module.parent / '__init__.py').touch()
             (module / '__init__.py').touch()
-            (module / 'ssh.py').write_text(f'HERMES_LINK_CONTROL_VERSION = {SAFE_EXECUTOR_CAPABILITY_VERSION!r}\n')
+            (module / 'ssh.py').write_text(f'HERMACHY_CONTROL_VERSION = {SAFE_EXECUTOR_CAPABILITY_VERSION!r}\n')
             (runtime / 'hermes_state.py').write_text('''
 class SessionDB:
     def search_sessions(self, source, limit, workspace_key=None):
@@ -48,10 +48,10 @@ class SessionDB:
                 'executor_user': 'user', 'executor_identity_file': str(key),
             }))
             config.chmod(0o600)
-            artifact = build_one('hlink-server', root / 'dist')
+            artifact = build_one('hermachy-server', root / 'dist')
             request = LaunchRequest('/workspace', 'resolve')
-            env = dict(os.environ, HOME=str(root), HLINK_SERVER_CONFIG=str(config),
-                       SSH_ORIGINAL_COMMAND='hlink-v1 ' + encode_request(request))
+            env = dict(os.environ, HOME=str(root), HERMACHY_SERVER_CONFIG=str(config),
+                       SSH_ORIGINAL_COMMAND='hermachy-v1 ' + encode_request(request))
             result = subprocess.run([sys.executable, str(artifact)], env=env,
                                     capture_output=True, text=True, timeout=5)
             self.assertEqual(result.returncode, 0, result.stderr)
