@@ -7,6 +7,8 @@ import select
 import signal
 import subprocess
 import sys
+import uuid
+from dataclasses import replace
 from typing import Callable
 
 from .client import ClientError, _config_path, build_ssh_argv, load_client_config
@@ -94,7 +96,13 @@ def main() -> int:
         if request.action != "gateway":
             raise ProtocolError("expected a gateway request")
         config = load_client_config(_config_path())
-        child = subprocess.Popen(build_ssh_argv(config, request), stdin=subprocess.PIPE)
+        persistent = bool(getattr(request, "connection", None))
+        if persistent:
+            # A native TUI restart must get a fresh supervisor. Reconnects
+            # inside run_connection retain this ID and its sequence state.
+            request = replace(request, connection=uuid.uuid4().hex)
+        else:
+            child = subprocess.Popen(build_ssh_argv(config, request), stdin=subprocess.PIPE)
     except (ClientError, ProtocolError, OSError) as exc:
         print(f"hermachy-gateway: {exc}", file=sys.stderr)
         return 2
@@ -106,6 +114,19 @@ def main() -> int:
         requested_signal = signum
 
     previous = {sig: signal.signal(sig, stop) for sig in (signal.SIGTERM, signal.SIGINT)}
+
+    if persistent:
+        from .connection import run_connection
+        try:
+            code = run_connection(config, request, os.environ.get("HERMACHY_REASONING"),
+                                  lambda: bool(requested_signal))
+            return 128 + requested_signal if requested_signal else code
+        except (OSError, ValueError, TypeError, RecursionError) as exc:
+            print(f"hermachy-gateway: transport closed: {exc}", file=sys.stderr)
+            return 2
+        finally:
+            for sig, handler in previous.items():
+                signal.signal(sig, handler)
 
     result = None
     try:

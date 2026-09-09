@@ -73,7 +73,32 @@ Its SSH policy includes:
 
 Safe-executor capability v2 applies equivalent dedicated-identity isolation to Hermes's outbound Omarchy connection.
 
-`yes` requires the exact destination key to be recorded before the first Hermachy connection. Verify both destination fingerprints out-of-band, populate each user's `known_hosts`, and treat either a missing or mismatched key as a security event. Never work around it with `StrictHostKeyChecking=no`.
+`StrictHostKeyChecking=yes` requires the exact destination key to be recorded
+before the first Hermachy connection. Verify both destination fingerprints
+out-of-band, populate each user's `known_hosts`, and treat either a missing or
+mismatched key as a security event. Never work around it with
+`StrictHostKeyChecking=no`.
+
+## Persistent gateway and explicit host execution
+
+Hermachy 0.4.0 keeps the gateway in a detached supervisor on the Hermes host.
+Private Unix sockets under `/tmp/hermachy-<uid>/` accept attachments through the
+existing forced-command SSH endpoint. Connection IDs are random 128-bit values.
+Durable creation records under `~/.local/state/hermachy/connections/` prevent a
+terminated gateway from being recreated with the same stream state, including
+after a reboot. The directories are owner-only. Socket-side logs are private.
+The stream keeps bounded unacknowledged data in memory and deduplicates replayed
+records. The supervisor expires after one hour without an attachment. Exit from
+the TUI requests shutdown; loss of SSH alone does not stop the running agent.
+
+The Hermachy-only `terminal(target="hermes")` tool explicitly permits commands on either
+machine. The `hermes` target executes as the remote Hermes user using the Hermes
+local environment and command approval checks. It therefore has access to that
+user's remote files and programs. This is an intentional addition to the trust
+boundary; it does not change the safe-executor contract of the native terminal,
+file or code tools, whose default route remains Omarchy. The extension never toggles
+the protected process route or automatically copies profile state between hosts.
+Routing is explicit per call, with no fallback to the other machine on failure.
 
 ## Secrets and authoritative state
 
@@ -159,7 +184,7 @@ Both revocation commands block **future SSH authentication only**. OpenSSH does 
 
 1. Revoke the relevant key block.
 2. Exit every active Hermachy TUI using that link.
-3. Identify and terminate the exact Hermachy-started Hermes process plus its associated SSH or control-master processes on both machines. Do not broadly kill unrelated Hermes or SSH sessions.
+3. Identify and terminate the exact Hermachy supervisor (`hermachy.persistent`), its Hermes gateway and associated SSH/control-master processes on both machines. The supervisor owns the gateway process group and terminates it when stopped. Connection creation records contain supervisor PIDs; verify process identity before acting on an old record. Do not broadly kill unrelated Hermes or SSH sessions.
 4. Verify no process or connection associated with that link remains.
 
 Then remove the corresponding private/public key pair and installed endpoint if decommissioning permanently.

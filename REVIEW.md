@@ -1,3 +1,70 @@
+# Hermachy 0.4.0 release verification — 2026-09-09
+
+The release includes connection recovery, execution targets, and the optional
+Omarchy desktop app. CLI and desktop both report 0.4.0. GitHub CI now covers
+Python 3.9/3.11/3.13, desktop unit tests, browser UI tests, and the release
+checksum check. `scripts/build_release.py` creates the complete versioned CLI
+archive and its SHA256SUMS; tests verify archive completeness, executable modes,
+reproducibility, checksum drift detection, and version agreement.
+
+Local release validation passed:
+
+- 88 Python tests, including real subprocess/socket recovery tests and rejection
+  of malformed execution targets without executing on either machine.
+- 7 desktop unit tests and 7 browser UI tests, including readable selected text
+  on inverted selection palettes such as Last Horizon.
+- Native Electron theme switching with an open dialog and preserved draft.
+- Native Electron connection/rendering smoke check with sandboxing and context
+  isolation enabled, Node integration disabled, and no renderer exceptions.
+- Built client doctor, real gateway capability RPC, and clean EOF shutdown.
+- A complete desktop model turn with a test text attachment and app icon: the
+  agent read the Omarchy file, analyzed the image, and returned the expected
+  token and color. This created a saved validation conversation.
+- Python compilation, renderer syntax, runtime provenance, release checksums,
+  and whitespace checks.
+
+The earlier deployment record describes the installed endpoints; this release
+review does not claim those binaries were replaced with the final release.
+No full one-hour network-outage soak or interrupted execution-SSH command test
+was added. The limitations below still apply except that a full interactive
+desktop model/tool conversation has now been checked.
+
+---
+
+# Hermachy 0.4.0 — connection recovery and execution targets
+
+The 0.4.0 update adds a private remote gateway supervisor and an acknowledged
+stream around SSH. An attachment can reconnect without replacing the Hermes
+agent. Sequence numbers deduplicate replayed input and output; bounded buffers
+apply backpressure. A durable connection tombstone prevents replay into a fresh
+agent after the supervisor terminates or the host reboots. Disconnected gateways
+expire after one hour. Intentional close has bounded teardown.
+
+Hermes's native terminal schema now accepts `target="omarchy"` (default) or
+`target="hermes"`. Omarchy preserves native background/process support; Hermes
+uses a separate local environment with the existing command approval checks,
+foreground timeouts up to 300 seconds, and an explicit remote working directory.
+File and code operations on Hermes use terminal shell/Python commands. The
+protected Omarchy environment and no-sync settings remain active throughout.
+Both SSH legs send keepalives. The extension ships inside Hermachy and requires
+no edits to the installed Hermes source tree or vendor TUI bundle.
+
+Validation: all 84 local tests pass, including real subprocess/socket tests for
+lost acknowledgements, interrupted frames, a dropped connection during a command,
+large output/backpressure, expiry, and graceful shutdown. Runtime tests cover
+approval denial, invalid targets, native background support and no cross-machine
+fallback. Live native terminal calls ran `uname -s` and `pwd` on each target and
+verified Darwin on Hermes and Linux in the requested Omarchy workspace. The
+candidate persistent gateway answered the real capability RPC over SSH and
+closed cleanly. Build, compile, renderer syntax, and whitespace checks pass.
+
+These checks do not cover a full interactive model conversation, a one-hour
+network outage, or survival of a workstation command whose own execution SSH
+connection is interrupted. Such commands must be inspected before retrying.
+Deployment details and installed smoke results are recorded in `DEPLOYMENT.json`.
+
+---
+
 # Hermachy stability review — 2026-09-05
 
 The reviewed release is **0.3.0**, prepared in `dist/`. The release includes the

@@ -25,10 +25,18 @@ class ProtocolTests(unittest.TestCase):
             LaunchRequest("/home/omarchy-user/project", "continue", "named session"),
             LaunchRequest("/home/omarchy-user/project", "resume", "20260904_abcd"),
             LaunchRequest("/home/omarchy-user/project", "doctor"),
+            LaunchRequest("/home/omarchy-user/project", "gateway", connection="a" * 32),
         ]
         for request in requests:
             with self.subTest(request=request):
                 self.assertEqual(decode_request(encode_request(request)), request)
+
+    def test_connection_id_is_only_valid_for_gateway(self):
+        for action, connection in (("doctor", "a" * 32), ("gateway", "../bad"),
+                                   ("gateway", "a" * 31), ("gateway", None)):
+            with self.subTest(action=action, connection=connection), self.assertRaises(ProtocolError):
+                decode_request(encode_raw({"v": 1, "cwd": "/tmp", "action": action,
+                                           "connection": connection}))
 
     def test_encoding_is_urlsafe_and_unpadded(self) -> None:
         token = encode_request(LaunchRequest("/home/u/project with spaces"))

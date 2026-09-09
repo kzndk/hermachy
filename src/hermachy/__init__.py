@@ -1,3 +1,3 @@
-"""Hermachy: remote Hermes knowledge, local execution."""
+"""Hermachy: persistent remote Hermes with execution on either machine."""
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"

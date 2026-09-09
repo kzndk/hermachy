@@ -1,6 +1,6 @@
 # Configure Omarchy with a remote Hermes Agent
 
-This guide connects an Omarchy workstation to a Hermes Agent running on another machine. You start `hermachy` in an Omarchy project directory, interact with the native Hermes TUI rendered locally, and have Hermes execute terminal, file, and code operations on Omarchy.
+This guide connects an Omarchy workstation to a Hermes Agent running on another machine. You start `hermachy` in an Omarchy project directory and interact with the native Hermes TUI rendered locally. Native terminal, file, and code tools run on Omarchy; `terminal(target="hermes")` also lets the agent choose the remote Hermes host for commands, CLI tools, files and code. See [connection recovery and execution targets](../README.md#connection-recovery-and-execution-targets) for routing and recovery behavior in 0.4.0.
 
 ## 1. Understand the boundary
 

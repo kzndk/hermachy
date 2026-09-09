@@ -126,7 +126,7 @@ def parser() -> argparse.ArgumentParser:
     from .hermes_parser import build_top_level_parser
     result, _, chat = build_top_level_parser()
     result.prog = "hermachy"
-    result.description = "Local Hermes TUI · remote Hermes intelligence · local Omarchy execution"
+    result.description = "Local Hermes TUI · persistent connection · Omarchy and Hermes execution"
     result.epilog = "Run hermachy in a project, or hermachy --in DIR. Use /help inside the native TUI."
     for target in (result, chat):
         target.add_argument("--cwd", help="Alias for --in: local working directory",
@@ -313,8 +313,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             subprocess.run(["git", "-C", root, "worktree", "add", "--detach", str(target)], check=True)
             cwd = str(target)
             print(f"Local worktree: {cwd}", file=sys.stderr)
-        request = LaunchRequest(cwd, "gateway", env=build_launch_env(args))
-        check_remote(config, cwd)
+        request = LaunchRequest(cwd, "gateway", env=build_launch_env(args),
+                                connection=uuid.uuid4().hex)
+        report = check_remote(config, cwd)
+        if report.get("persistent_gateway") != 1 or report.get("execution_targets") != ["omarchy", "hermes"]:
+            raise ClientError("remote Hermachy server needs upgrading for persistent connections and dual execution")
         command, env = prepare_local_ui(args, config, request)
         return subprocess.run(command, cwd=cwd, env=env, check=False).returncode
     except (ClientError, ProtocolError, OSError, subprocess.SubprocessError) as exc:

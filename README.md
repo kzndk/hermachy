@@ -1,6 +1,6 @@
 # Hermachy (`hermachy`)
 
-**Render the native Hermes TUI locally, connect to a remote Hermes Agent, and execute terminal, file, and code tools on your Omarchy machine.**
+**Render the native Hermes TUI locally, keep your remote agent connected, and execute commands and tools on Omarchy or the Hermes host as the task requires.**
 
 [![Tests](https://github.com/kzndk/hermachy/actions/workflows/test.yml/badge.svg)](https://github.com/kzndk/hermachy/actions/workflows/test.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
@@ -13,7 +13,7 @@ Omarchy workstation
        │  SSH JSON-RPC over Tailscale
        ▼
 Remote Hermes host
-  `tui_gateway.entry` + Hermes Agent
+  persistent gateway + Hermes Agent + remote execution
   memory, skills, sessions, models, credentials
        │  dedicated SSH execution connection
        ▼
@@ -21,7 +21,7 @@ Omarchy workstation
   terminal, files, patches, searches, builds, code execution
 ```
 
-The remote host remains the authoritative Hermes “brain.” Omarchy is the execution machine. Hermachy does not clone a Hermes profile or replace the Hermes TUI. The current pre-alpha launches the remote Hermes `default` profile; do not give an untrusted workstation access to a sensitive profile.
+The remote host remains the authoritative Hermes “brain.” The agent can choose Omarchy or the Hermes host for each command. Hermachy does not clone a Hermes profile or replace the Hermes TUI. The current pre-alpha launches the remote Hermes `default` profile; do not give an untrusted workstation access to a sensitive profile.
 
 > [!IMPORTANT]
 > **Current status: public pre-alpha and fail-closed.** Hermachy requires a Hermes build that implements **safe-executor capability v2**. Released Hermes versions that can override the requested route, copy profile state into an SSH backend, or use ambient SSH identities are rejected before the TUI starts. Do not bypass this gate. See [Hermes compatibility](#hermes-compatibility).
@@ -33,9 +33,9 @@ The remote host remains the authoritative Hermes “brain.” Omarchy is the exe
 | Real Hermes TUI and agent loop | ✓ | — |
 | Models and provider credentials | ✓ | — |
 | Memory, skills, sessions, and profile state | ✓ | — |
-| Terminal commands | — | ✓ |
-| File read/write/search/patch | — | ✓ |
-| Builds, tests, and code execution | — | ✓ |
+| Shell commands and installed CLI tools | ✓ | ✓ |
+| Native file and code tools | — | ✓ |
+| File operations, builds and code through shell/Python commands | ✓ | ✓ |
 | Hermachy client key | public key only | private key |
 | Hermachy execution key | private key | public key only |
 
@@ -59,6 +59,9 @@ Quick outline:
 
 ## Build
 
+Version **0.4.0** includes the CLI, connection recovery, explicit execution
+targets, and the optional Omarchy desktop app. See [release notes](CHANGELOG.md).
+
 ```bash
 git clone https://github.com/kzndk/hermachy.git
 cd hermachy
@@ -78,7 +81,34 @@ dist/tui/           # renderer, provenance, and license
 Python 3.9 or newer is required. The Omarchy client also requires Node.js.
 The build verifies the bundled renderer and parser against `tui/PROVENANCE.json`.
 
+The [0.4.0 release](https://github.com/kzndk/hermachy/releases/tag/v0.4.0)
+provides `hermachy-0.4.0.tar.gz` with all four executables and the required `tui/`
+assets. Download it with `SHA256SUMS`, run `sha256sum -c SHA256SUMS`, then extract
+it and follow the setup guide. Keep the executables and `tui/` together when
+installing. The desktop app is installed from the source checkout using the
+[desktop guide](desktop/README.md).
+
+To reproduce the release bundle and verify the committed runtime hashes:
+
+```bash
+python3 scripts/build_release.py --check
+```
+
+Maintainers run it without `--check` after changing the Python runtime to refresh
+`release-sha256.json`. The versioned archive and `SHA256SUMS` are written to
+`dist/release/`.
+
 ## Use
+
+### Desktop app for Omarchy
+
+The [Hermachy app](desktop/README.md) adds streaming chat, searchable saved
+conversations, file and image attachments, and three original animated companions
+that react while your agent works. It uses the same CLI configuration and SSH
+connection. See the desktop guide for installation, then open **Hermachy** from
+the Omarchy launcher or run `hermachy-app --cwd /path/to/project`.
+
+### Terminal interface
 
 After completing the setup guide, open a terminal on Omarchy and run:
 
@@ -98,6 +128,31 @@ hermachy --cwd /absolute/omarchy/path
 ```
 
 The native TUI renders locally; the remote Hermes gateway owns the agent and sessions. The supplied Omarchy directory is the execution working directory. Startup checks the remote runtime and executor before launching the renderer.
+
+### Connection recovery and execution targets
+
+Both SSH legs send keepalives every 15 seconds and detect an unresponsive peer
+after three unanswered probes. The local gateway reconnects automatically with
+backoff up to 15 seconds. A private supervisor keeps the same remote agent alive
+for up to one hour without a client attachment. Its acknowledged stream resumes
+input and output without executing a submitted RPC twice. Buffers apply
+backpressure when full. No additional TCP listener is opened.
+
+The native terminal tool exposes the execution target directly. The agent supplies
+`target="omarchy"` or `target="hermes"` for each command. For example, ask it to
+inspect your Omarchy desktop, run local project tests, or check services and files
+on the Hermes host. Remote commands use the Hermes user's home by default; an
+explicit `workdir` belongs to the chosen machine. Each result identifies its
+target. The Hermes target supports foreground commands up to 300 seconds and uses Hermes
+command approvals. Omarchy retains native background/process support. Native file/code tools retain their Omarchy route; remote
+file operations and code run through shell commands on the Hermes target.
+
+Closing the TUI deliberately shuts down its gateway. A remote reboot or gateway
+crash requires resuming the saved session with `hermachy --continue`; automatic
+transport recovery does not replay commands into a replacement agent. An
+interrupted Omarchy execution SSH connection can leave a command's outcome
+uncertain; the agent must inspect its result before retrying it. Upgrade both
+Hermachy endpoints together to 0.4.0 for these features.
 
 ## Hermes compatibility
 

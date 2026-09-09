@@ -268,6 +268,10 @@ def build_executor_ssh_argv(config: ServerConfig, cwd: str) -> list[str]:
         "-o",
         "ConnectTimeout=8",
         "-o",
+        "ServerAliveInterval=15",
+        "-o",
+        "ServerAliveCountMax=3",
+        "-o",
         "ClearAllForwardings=yes",
         "-o",
         "ForwardAgent=no",
@@ -318,6 +322,8 @@ def run_doctor(config: ServerConfig, request: LaunchRequest) -> int:
             "status": "ok",
             "product": "Hermachy",
             "version": __version__,
+            "persistent_gateway": 1,
+            "execution_targets": ["omarchy", "hermes"],
             "studio": {
                 "hostname": socket.gethostname(),
                 "user": getpass.getuser(),
@@ -429,8 +435,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             return resolve_remote_session(config, request)
         if request.action == "gateway":
             # No remote renderer or PTY: stdout is exclusively native JSON-RPC.
-            command = [str(_runtime_python(config)), "-m", "tui_gateway.entry"]
+            from .persistent import attach_gateway, module_command
+            command = module_command(str(_runtime_python(config)), "hermachy.runtime")
             os.chdir(config.hermes_source_root)
+            if request.connection:
+                return attach_gateway(request.connection, command, build_hermes_env(config, request))
             os.execvpe(command[0], command, build_hermes_env(config, request))
             raise ServerError("Hermes gateway unexpectedly returned")
         if not has_interactive_tty():
@@ -438,7 +447,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         command = build_hermes_argv(config, request)
         os.execvpe(command[0], command, build_hermes_env(config, request))
         raise ServerError("Hermes process unexpectedly returned")
-    except (ProtocolError, ServerError, OSError, subprocess.SubprocessError) as exc:
+    except (ValueError, OSError, subprocess.SubprocessError) as exc:
         print(f"hermachy-server: {exc}", file=sys.stderr)
         return 2
 

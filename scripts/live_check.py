@@ -7,6 +7,7 @@ import selectors
 import subprocess
 import sys
 import time
+import uuid
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'dist/hermachy'))
@@ -23,7 +24,7 @@ print('Doctor:', report['status'], flush=True)
 if args.session:
     session = resolve_session(config, LaunchRequest(cwd, 'resolve', args.session))
     print('Named session resolves:', bool(session), flush=True)
-env = dict(os.environ, HERMACHY_REQUEST=encode_request(LaunchRequest(cwd, 'gateway')))
+env = dict(os.environ, HERMACHY_REQUEST=encode_request(LaunchRequest(cwd, 'gateway', connection=uuid.uuid4().hex)))
 proc = subprocess.Popen([str(ROOT / 'dist/hermachy-gateway'), '-m', 'tui_gateway.entry'],
                         stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                         stderr=subprocess.PIPE, env=env)

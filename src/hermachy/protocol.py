@@ -17,7 +17,7 @@ MAX_SESSION_CHARS = 512
 ACTIONS = frozenset({"new", "continue", "resume", "doctor", "gateway", "resolve"})
 _TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 _REQUIRED_FIELDS = frozenset({"v", "cwd", "action"})
-_ALLOWED_FIELDS = _REQUIRED_FIELDS | {"session", "env"}
+_ALLOWED_FIELDS = _REQUIRED_FIELDS | {"session", "env", "connection"}
 
 
 class ProtocolError(ValueError):
@@ -32,6 +32,7 @@ class LaunchRequest:
     action: str = "new"
     session: str | None = None
     env: dict[str, str] | None = None
+    connection: str | None = None
 
 
 # Only presentation/invocation settings; execution routing and Python imports
@@ -107,7 +108,14 @@ def _validate_payload(payload: Any) -> LaunchRequest:
                       for k, v in launch_env.items()}
     if action == "gateway" and has_session:
         raise ProtocolError("gateway does not accept a session")
-    return LaunchRequest(cwd=cwd, action=action, session=session, env=launch_env)
+    connection = payload.get("connection")
+    if "connection" in payload and (
+        action != "gateway" or not isinstance(connection, str)
+        or not re.fullmatch(r"[a-f0-9]{32}", connection)
+    ):
+        raise ProtocolError("connection requires a gateway and a 32-character hex ID")
+    return LaunchRequest(cwd=cwd, action=action, session=session, env=launch_env,
+                         connection=connection)
 
 
 def _object_without_duplicates(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -131,6 +139,8 @@ def encode_request(request: LaunchRequest) -> str:
         payload["session"] = request.session
     if request.env is not None:
         payload["env"] = request.env
+    if request.connection is not None:
+        payload["connection"] = request.connection
     validated = _validate_payload(payload)
 
     serializable: dict[str, Any] = {
@@ -143,6 +153,8 @@ def encode_request(request: LaunchRequest) -> str:
 
     if validated.env is not None:
         serializable["env"] = validated.env
+    if validated.connection is not None:
+        serializable["connection"] = validated.connection
 
     raw = json.dumps(
         serializable,
