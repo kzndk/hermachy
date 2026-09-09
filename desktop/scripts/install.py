@@ -57,7 +57,7 @@ def main():
     launcher = HOME_DIR / '.local/bin/hermachy-app'
     launcher.parent.mkdir(parents=True, exist_ok=True)
     launcher.write_text('#!/usr/bin/env bash\nexec ' + shlex.quote(str(TARGET / 'runtime/electron'))
-                        + ' ' + shlex.quote(str(TARGET / 'desktop')) + ' --class=Hermachy "$@"\n')
+                        + ' ' + shlex.quote(str(TARGET / 'desktop')) + ' --class=Hermachy --disable-gpu "$@"\n')
     launcher.chmod(0o755)
     icon_dir = DATA / 'icons/hicolor/256x256/apps'
     icon_dir.mkdir(parents=True, exist_ok=True)

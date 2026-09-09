@@ -24,6 +24,8 @@ hermachy-app
 
 The installer places the app and its Electron runtime in `~/.local/share/hermachy/app`, creates `~/.local/bin/hermachy-app`, and adds **Hermachy** to the Omarchy app launcher. It honors `XDG_DATA_HOME` for application and launcher data. An earlier app installation is retained as `app.previous` until the next installation. The CLI and remote host installation are separate.
 
+The installed launcher uses software rendering (`--disable-gpu`) to avoid Electron EGL initialization errors on virtual GPUs. This disables hardware acceleration for the app.
+
 To launch in a project:
 
 ```bash
