@@ -1,3 +1,38 @@
+# Installation compatibility verification — 2026-09-10
+
+The supported Hermes recipe now pins public upstream commit
+`8e0b9819d3be29e1628da4014c8065243402964b` plus the complete patch in
+`compat/hermes/`. Its manifest records the patch SHA-256 and resulting Git tree.
+The preparation helper fetched that commit without credentials and applied and
+verified the patch in a new directory. A second fresh installation reproduced
+the documented core-only `uv sync --locked --python 3.11` command with uv 0.12.13,
+using Python 3.11.16 on Linux ARM64. Hermes's version command and capability
+import both passed.
+
+Validation:
+
+- 90 Hermachy tests passed, including preparation from a Git remote, refusal to
+  overwrite an existing installation, patch tampering and source drift rejection,
+  and release packaging/checksum checks.
+- 942 Hermes tests passed across the 12 contract and gateway files listed in the
+  compatibility guide; one Windows-only test was skipped. The broader gateway
+  test caught an undefined session ID in the initial patch's resume path; the
+  patch was corrected and all 634 tests in that file passed on rerun.
+- With only the documented core dependencies and a temporary empty profile,
+  the actual Hermachy execution extension imported and the real gateway
+  answered `gateway.capabilities`. A separate probe with test dependencies
+  installed also verified protected `shell.exec` rejection. Neither probe
+  created a model conversation or used a real execution SSH connection.
+- Source verification, Python compilation, release checksum verification,
+  documentation links, and whitespace checks passed.
+
+Linux/macOS compatibility jobs are defined in CI; their hosted runs have not
+been observed for these local changes. Existing historical releases do not
+contain the new installer. The new source and future release bundles include
+the recipe, patch, upstream license, and setup instructions.
+
+---
+
 # Hermachy 0.4.0 release verification — 2026-09-09
 
 The release includes connection recovery, execution targets, and the optional

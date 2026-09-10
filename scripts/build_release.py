@@ -38,6 +38,11 @@ def build_release(output: Path, manifest: Path, *, check: bool = False) -> Path:
     payloads = {name: item.read_bytes() for name, item in files.items()}
     payloads["LICENSE"] = (ROOT / "LICENSE").read_bytes()
     payloads["release-sha256.json"] = manifest.read_bytes()
+    for name in ("README.md", "CHANGELOG.md", "SECURITY.md", "docs/OMARCHY_REMOTE_HERMES.md",
+                 "compat/hermes/README.md", "compat/hermes/LICENSE",
+                 "compat/hermes/manifest.json", "compat/hermes/prepare.py",
+                 "compat/hermes/safe-executor-v2.patch"):
+        payloads[name] = (ROOT / name).read_bytes()
     with archive.open("wb") as raw, gzip.GzipFile(fileobj=raw, mode="wb", filename="", mtime=0) as compressed:
         with tarfile.open(fileobj=compressed, mode="w", format=tarfile.USTAR_FORMAT) as bundle:
             for name, data in sorted(payloads.items()):

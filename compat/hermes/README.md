@@ -1,0 +1,136 @@
+# Install the compatible Hermes runtime
+
+Hermachy's supported source recipe is an immutable public Hermes commit plus
+the patch shipped in this directory. It does not require access to a private
+fork or an unreleased upstream capability.
+
+| Component | Pinned reference |
+|---|---|
+| Hermes base | [NousResearch/hermes-agent at `8e0b9819d3be29e1628da4014c8065243402964b`](https://github.com/NousResearch/hermes-agent/commit/8e0b9819d3be29e1628da4014c8065243402964b) |
+| Compatibility changes | [safe-executor-v2.patch](safe-executor-v2.patch) |
+| Source and patch checksums | [manifest.json](manifest.json) |
+| Runtime Python | 3.11 (Hermes requires 3.11–3.13; Hermachy's zipapps require 3.9+) |
+| Dependency installer | uv 0.12.13, using the base commit's `uv.lock` |
+
+The patch includes the complete Hermachy safe-executor v2 implementation,
+configuration and tool routing, dedicated SSH identity and no-sync enforcement,
+TUI gateway restrictions, and regression tests. It also prevents dependency
+installation during protected Hermachy sessions. The upstream source and patch
+are MIT licensed; see [LICENSE](LICENSE).
+
+## 1. Prepare a separate source directory on the remote Hermes host
+
+Run as the normal account that will own Hermes. You need Git, Python 3.9+ with
+venv/pip support, and outbound HTTPS access to GitHub and the Python package
+downloads. On Debian/Ubuntu, install `git` and `python3-venv` if missing.
+
+From the Hermachy repository checkout (or a new release bundle containing
+`compat/hermes/`):
+
+```bash
+python3 compat/hermes/prepare.py "$HOME/.local/share/hermachy/hermes-safe-executor-v2"
+```
+
+The helper fetches the exact public commit, checks the patch's SHA-256, applies
+it, and verifies the entire resulting Git tree against the manifest. It refuses
+an existing destination. Your existing Hermes installation and profile are not
+modified by source preparation. If a download fails, choose a new empty path or
+remove only the incomplete directory before retrying.
+
+For manual inspection, the equivalent Git operations are a depth-one fetch of
+the full commit above, detached checkout, then `git apply --index --check` and
+`git apply --index` with this patch. The helper adds checksum and result-tree
+verification. The patch deliberately remains staged so later checks can verify
+both the index and working files; do not commit it or run `git pull` here.
+
+## 2. Install locked dependencies into the required `venv/`
+
+These commands bootstrap the pinned installer separately and let uv download
+Python 3.11 if it is missing:
+
+```bash
+python3 -m venv "$HOME/.local/share/hermachy/installer"
+"$HOME/.local/share/hermachy/installer/bin/python" -m pip install 'uv==0.12.13'
+cd "$HOME/.local/share/hermachy/hermes-safe-executor-v2"
+UV_PROJECT_ENVIRONMENT=venv "$HOME/.local/share/hermachy/installer/bin/uv" sync --locked --python 3.11
+```
+
+`UV_PROJECT_ENVIRONMENT=venv` is necessary: Hermachy selects this source tree's
+`venv/bin/python` and `venv/bin/hermes`. uv's default `.venv/` is not that layout.
+`--locked` rejects a stale lockfile instead of silently changing dependencies.
+
+The base dependencies support providers such as OpenRouter. Install any optional
+provider/tool dependencies before starting Hermachy; for native Anthropic, repeat
+the sync command with `--extra anthropic`. Repeat all chosen `--extra` options
+on subsequent syncs, since uv removes unselected extras. Protected sessions
+reject missing optional dependencies instead of installing packages mid-session.
+
+## 3. Configure and check Hermes locally
+
+From that Hermes source directory:
+
+```bash
+venv/bin/hermes --version
+venv/bin/hermes setup
+venv/bin/hermes doctor
+venv/bin/python -c 'from tools.environments.ssh import HERMACHY_CONTROL_VERSION; assert HERMACHY_CONTROL_VERSION == "2"; print("Hermachy safe-executor v2: OK")'
+```
+
+Configure your model and credentials on this remote host only. `setup` writes to
+the account's Hermes profile; if that account already has a configured default
+profile, keep it and skip `setup`. Hermachy currently uses that **default** profile.
+
+From the Hermachy checkout, verify source provenance again:
+
+```bash
+python3 compat/hermes/prepare.py --check "$HOME/.local/share/hermachy/hermes-safe-executor-v2"
+```
+
+This checks the base revision, patch checksum, resulting source tree, and working
+file drift. The import probe checks that the installed runtime loads capability
+v2. Neither substitutes for behavioral tests or the two-machine SSH checks.
+
+Continue with [the two-machine setup guide](../../docs/OMARCHY_REMOTE_HERMES.md#3-record-and-verify-both-tailscale-identities).
+At `studio-finish`, use:
+
+```text
+--hermes-source-root "$HOME/.local/share/hermachy/hermes-safe-executor-v2"
+```
+
+Finish by running `hermachy --doctor` on Omarchy before opening the TUI.
+
+## Validation and upgrades
+
+The compatibility CI job prepares this source from the public upstream commit, installs locked
+dependencies, checks the real capability import, and runs the supplied Hermes
+contract tests on Linux and macOS. To reproduce the contract tests locally,
+add `--extra dev` to your dependency sync, then run from the Hermes checkout:
+
+```bash
+scripts/run_tests.sh -j 4 \
+  tests/hermes_cli/test_hermachy_safe_executor.py \
+  tests/tools/test_hermachy_safe_executor_ssh.py \
+  tests/tools/test_hermachy_surface_propagation.py \
+  tests/gateway/test_hermachy_executor_bridge.py \
+  tests/hermes_cli/test_env_loader.py \
+  tests/hermes_cli/test_config_env_expansion.py \
+  tests/tools/test_terminal_env_bridge.py \
+  tests/tools/test_file_tools_container_config.py \
+  tests/tools/test_lazy_deps.py \
+  tests/tui_gateway/test_protocol.py \
+  tests/test_tui_gateway_server.py \
+  tests/agent/test_prompt_builder.py
+```
+
+The source and locked dependency recipe are reproducible; platform-specific
+wheels and Python builds are not claimed to be byte-identical across machines.
+The tests do not run a paid model conversation or establish your Tailscale/SSH
+connections. Those connections are checked by the setup guide's doctor step.
+
+Keep this runtime pinned, even if `hermes --version` reports an available update.
+`hermes update`, a stock Hermes reinstall, or an
+arbitrary branch update can remove the required behavior. For a future Hermachy
+compatibility update, prepare the new recipe in a new directory, verify it,
+close active clients, and rerun `studio-finish` with its source root. Keep the
+previous directory for rollback. Never add a capability constant or disable the
+server check to make an incompatible runtime start.

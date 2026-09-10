@@ -7,6 +7,7 @@ ROOT = Path(__file__).resolve().parents[1]
 README = ROOT / "README.md"
 GUIDE = ROOT / "docs" / "OMARCHY_REMOTE_HERMES.md"
 SECURITY = ROOT / "SECURITY.md"
+COMPATIBILITY = ROOT / "compat" / "hermes" / "README.md"
 
 
 class DocumentationTests(unittest.TestCase):
@@ -39,7 +40,7 @@ class DocumentationTests(unittest.TestCase):
         self.assertIn("do **not** terminate already-authenticated", text)
 
     def test_relative_markdown_links_resolve(self) -> None:
-        for source in (README, GUIDE, SECURITY):
+        for source in (README, GUIDE, SECURITY, COMPATIBILITY):
             text = source.read_text(encoding="utf-8")
             for target in re.findall(r"\[[^]]+\]\(([^)]+)\)", text):
                 if target.startswith(("http://", "https://", "#", "mailto:")):
@@ -50,7 +51,7 @@ class DocumentationTests(unittest.TestCase):
 
     def test_public_docs_do_not_contain_private_machine_examples(self) -> None:
         text = "\n".join(
-            path.read_text(encoding="utf-8") for path in (README, GUIDE, SECURITY)
+            path.read_text(encoding="utf-8") for path in (README, GUIDE, SECURITY, COMPATIBILITY)
         )
         forbidden = (
             "/Users/ulrichslothuus",

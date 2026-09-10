@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Add a public, pinned Hermes installation recipe with the complete safe-executor
+  v2 patch, source and patch verification, locked dependencies, and Linux/macOS
+  compatibility CI. Include the installer and setup docs in new release bundles.
+
 ## 0.4.0 — 2026-09-09
 
 Hermachy now reconnects to the same remote agent after a temporary SSH loss and

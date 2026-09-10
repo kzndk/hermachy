@@ -24,7 +24,7 @@ Omarchy workstation
 The remote host remains the authoritative Hermes “brain.” The agent can choose Omarchy or the Hermes host for each command. Hermachy does not clone a Hermes profile or replace the Hermes TUI. The current pre-alpha launches the remote Hermes `default` profile; do not give an untrusted workstation access to a sensitive profile.
 
 > [!IMPORTANT]
-> **Current status: public pre-alpha and fail-closed.** Hermachy requires a Hermes build that implements **safe-executor capability v2**. Released Hermes versions that can override the requested route, copy profile state into an SSH backend, or use ambient SSH identities are rejected before the TUI starts. Do not bypass this gate. See [Hermes compatibility](#hermes-compatibility).
+> **Current status: public pre-alpha and fail-closed.** Install the [pinned compatible Hermes runtime](compat/hermes/README.md): a public upstream commit plus the complete **safe-executor capability v2** patch included here. Stock builds without this contract are rejected before the TUI starts. See [Hermes compatibility](#hermes-compatibility).
 
 ## What stays where
 
@@ -50,7 +50,7 @@ The complete setup guide covers prerequisites, Tailscale/SSH preparation, the tw
 Quick outline:
 
 1. Install Tailscale, OpenSSH, Git, and Python 3.9+, and Node.js on Omarchy.
-2. Install and configure Hermes on the remote host.
+2. [Install the pinned Hermes runtime](compat/hermes/README.md) and configure it on the remote host (Hermes uses Python 3.11).
 3. Build Hermachy’s four standalone zipapps and bundled native TUI.
 4. Run `hermachy-admin studio-prepare` on the remote host.
 5. Run `hermachy-admin omarchy-install` on Omarchy.
@@ -83,9 +83,12 @@ The build verifies the bundled renderer and parser against `tui/PROVENANCE.json`
 
 The [0.4.0 release](https://github.com/kzndk/hermachy/releases/tag/v0.4.0)
 provides `hermachy-0.4.0.tar.gz` with all four executables and the required `tui/`
-assets. Download it with `SHA256SUMS`, run `sha256sum -c SHA256SUMS`, then extract
-it and follow the setup guide. Keep the executables and `tui/` together when
-installing. The desktop app is installed from the source checkout using the
+assets. That historical archive predates the compatibility installer; use this
+source checkout's `compat/hermes/` directory to prepare Hermes. New bundles
+built from this tree include the patch, installer, manifest, and setup docs.
+For downloaded bundles, obtain `SHA256SUMS`, run `sha256sum -c SHA256SUMS`, then
+extract and follow the setup guide. Keep the executables and `tui/` together.
+The desktop app is installed from the source checkout using the
 [desktop guide](desktop/README.md).
 
 To reproduce the release bundle and verify the committed runtime hashes:
@@ -156,6 +159,23 @@ Hermachy endpoints together to 0.4.0 for these features.
 
 ## Hermes compatibility
 
+The supported recipe is **Hermes
+[`8e0b9819d3be29e1628da4014c8065243402964b`](https://github.com/NousResearch/hermes-agent/commit/8e0b9819d3be29e1628da4014c8065243402964b)
++ the bundled [safe-executor v2 patch](compat/hermes/safe-executor-v2.patch)**.
+The [compatibility manifest](compat/hermes/manifest.json) pins the patch SHA-256
+and resulting Git tree. No private fork is required.
+
+On the remote host, from this checkout, start with:
+
+```bash
+python3 compat/hermes/prepare.py "$HOME/.local/share/hermachy/hermes-safe-executor-v2"
+```
+
+Then follow the [runtime installation steps](compat/hermes/README.md) to install
+locked dependencies into `venv/`, configure your provider, and verify the source
+and capability. Keep this source pinned; arbitrary Hermes updates are not a
+supported upgrade path.
+
 Hermachy requires the remote Hermes runtime to export:
 
 ```text
@@ -172,7 +192,7 @@ Capability v2 includes the local TUI gateway contract and preserves the v1 execu
 - capability probing and TUI launch use the same pinned Hermes venv and source tree;
 - unsafe or malformed routing fails closed.
 
-`hermachy-server` verifies that the installed Hermes runtime declares capability v2 before launch. `hermachy --doctor` then reports the remote host identity, profile, and Hermes version, and validates the Omarchy executor's SSH identity, Linux operating system, and requested working directory. These runtime checks do not independently prove the capability's internal implementation, so use only a tested compatible Hermes build. If the marker or endpoint checks fail, Hermachy exits safely. The project will publish a tested compatible-version reference when the upstream capability is available; until then, Hermachy is for developers testing a compatible Hermes build.
+`hermachy-server` verifies that the installed Hermes runtime declares capability v2 before launch. `hermachy --doctor` then reports the remote host identity, profile, and Hermes version, and validates the Omarchy executor's SSH identity, Linux operating system, and requested working directory. These runtime checks do not independently prove the capability's internal implementation; use the pinned recipe and its contract tests above. If the marker or endpoint checks fail, Hermachy exits safely.
 
 ## Security
 

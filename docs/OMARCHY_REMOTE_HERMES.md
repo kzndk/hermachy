@@ -35,7 +35,7 @@ Only public keys cross machines. Never copy a private key, Hermes `.env`, `auth.
 Install and start the required packages:
 
 ```bash
-sudo pacman -S --needed git openssh python tailscale
+sudo pacman -S --needed git openssh python nodejs tailscale
 sudo systemctl enable --now sshd tailscaled
 sudo tailscale up
 ```
@@ -64,14 +64,19 @@ Requirements:
 
 Install Tailscale and OpenSSH using the operating system's normal method. On macOS, enable **System Settings → General → Sharing → Remote Login**. On Linux, enable the distribution's `sshd` service.
 
-Hermes must already work locally for `REMOTE_USER`:
+Install the [pinned compatible Hermes runtime](../compat/hermes/README.md) as
+`REMOTE_USER` before proceeding. That guide fetches a public upstream commit,
+applies the included capability patch, installs locked dependencies with Python
+3.11, and walks through provider setup. An arbitrary stock Hermes installation
+does not satisfy this prerequisite.
+
+After following it, Hermes must work locally for `REMOTE_USER`:
 
 ```bash
 whoami
 hostname
-command -v hermes
-hermes --version
-hermes doctor
+"$HOME/.local/share/hermachy/hermes-safe-executor-v2/venv/bin/hermes" --version
+"$HOME/.local/share/hermachy/hermes-safe-executor-v2/venv/bin/hermes" doctor
 python3 --version
 tailscale status
 ```
@@ -84,10 +89,10 @@ venv/bin/hermes
 tools/environments/ssh.py
 ```
 
-A common source installation is:
+The compatibility guide installs this source/runtime directory:
 
 ```text
-~/.hermes/hermes-agent
+~/.local/share/hermachy/hermes-safe-executor-v2
 ```
 
 ### Required Hermes safe-executor capability
@@ -95,7 +100,7 @@ A common source installation is:
 The remote Hermes build must implement Hermachy safe-executor capability v2. Check it from the Hermes source/runtime directory:
 
 ```bash
-cd ~/.hermes/hermes-agent
+cd ~/.local/share/hermachy/hermes-safe-executor-v2
 venv/bin/python -c 'from tools.environments.ssh import HERMACHY_CONTROL_VERSION; print(HERMACHY_CONTROL_VERSION)'
 ```
 
@@ -308,8 +313,8 @@ tailscale file get ~/Downloads/hermachy-inbox
 Resolve the exact Hermes source/runtime path:
 
 ```bash
-test -x "$HOME/.hermes/hermes-agent/venv/bin/python"
-test -x "$HOME/.hermes/hermes-agent/venv/bin/hermes"
+test -x "$HOME/.local/share/hermachy/hermes-safe-executor-v2/venv/bin/python"
+test -x "$HOME/.local/share/hermachy/hermes-safe-executor-v2/venv/bin/hermes"
 ```
 
 Then, from the Hermachy repository, install the server endpoint:
@@ -320,7 +325,7 @@ Then, from the Hermachy repository, install the server endpoint:
   --executor-host OMARCHY_HOST \
   --executor-user OMARCHY_USER \
   --client-public-key ~/Downloads/hermachy-inbox/hermachy_to_morpheus.pub \
-  --hermes-source-root "$HOME/.hermes/hermes-agent"
+  --hermes-source-root "$HOME/.local/share/hermachy/hermes-safe-executor-v2"
 ```
 
 Change `--hermes-source-root` if the checks in Step 2 found a different absolute path. Hermachy derives both capability verification and the TUI launch from that source root's `venv/bin/python`; it does not trust an unrelated `hermes` wrapper on `PATH`.
@@ -438,7 +443,11 @@ Symptom:
 installed Hermes must support Hermachy safe-executor capability v2
 ```
 
-Use a Hermes build that implements the complete capability contract. Do not edit Hermachy to skip the check and do not use stock SSH state synchronization.
+Follow the [compatible runtime installation steps](../compat/hermes/README.md),
+then rerun `studio-finish` with that runtime's `--hermes-source-root`. If you
+already installed it, run the guide's source verification and import probe to
+check for an accidental Hermes update or incorrect virtualenv. Do not edit
+Hermachy to skip the check and do not use stock SSH state synchronization.
 
 ### Omarchy cannot reach the remote host
 
@@ -504,6 +513,8 @@ Only then treat access as stopped. For permanent removal, delete the correspondi
 Build the new Hermachy version from a verified source revision. Re-run the relevant install phase with the new artifacts; managed files and marked blocks are updated idempotently. Run `hermachy --doctor` again before opening a session.
 
 Treat Hermachy, its safe-executor Hermes version, and SSH policy as one compatibility set. Do not unattended-auto-update one side of this security boundary.
+
+For a Hermes compatibility change, follow the [pinned runtime upgrade procedure](../compat/hermes/README.md#validation-and-upgrades): prepare a new directory, verify it, close active clients, and rerun Phase C with the new source root. Keep the previous runtime directory for rollback.
 
 ## Security reference
 

@@ -19,6 +19,11 @@ Safe-executor capability v2 must guarantee all of the following:
 
 A module constant alone is not a valid implementation. Missing, mismatched, or broken capability detection stops the launch before Hermes initializes an SSH environment. Do not remove or bypass this check.
 
+Use the [pinned public source and bundled patch](compat/hermes/README.md).
+Its manifest and preparation helper verify the source revision, patch checksum,
+and resulting tree; its regression tests exercise the contract above. Keep this
+runtime pinned when upgrading Hermachy.
+
 ## Trust model
 
 ### Omarchy-to-remote-host key
