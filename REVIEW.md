@@ -1,3 +1,25 @@
+# Documentation and installation walkthrough — 2026-09-11
+
+The setup guide now uses the actual release directory layout for both source
+builds and extracted archives. It distinguishes the local TUI renderer from
+the remote gateway, configures the default Hermes profile explicitly, documents
+the Python capability constant, and gives platform-specific checksum and
+Taildrop receiving instructions. Source-only desktop documentation links in the
+committed README and changelog point to the historical source tag so they also
+work from an extracted CLI bundle.
+
+The documented Phase A/B/C commands and bootstrap archive command were executed
+in temporary home directories against the staged release: once from a source
+build with GNU tar and once from an extracted archive with BSD tar. Both passed,
+including public-key handoff, installed gateway/TUI paths, server configuration,
+and private-key permissions. Every relative link and heading fragment in the
+packaged installation docs resolved. The explicit default-profile invocation
+also resolved correctly with a different active profile in a temporary home.
+These checks did not establish live SSH/Tailscale connections or run on macOS;
+BSD tar compatibility was checked on Linux.
+
+---
+
 # Installation compatibility verification — 2026-09-10
 
 The supported Hermes recipe now pins public upstream commit

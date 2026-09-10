@@ -30,7 +30,8 @@ The remote host remains the authoritative Hermes “brain.” The agent can choo
 
 | Capability or data | Remote Hermes host | Omarchy |
 |---|:---:|:---:|
-| Real Hermes TUI and agent loop | ✓ | — |
+| Native Hermes TUI renderer | — | ✓ |
+| Hermes gateway and agent loop | ✓ | — |
 | Models and provider credentials | ✓ | — |
 | Memory, skills, sessions, and profile state | ✓ | — |
 | Shell commands and installed CLI tools | ✓ | ✓ |
@@ -49,7 +50,7 @@ The complete setup guide covers prerequisites, Tailscale/SSH preparation, the tw
 
 Quick outline:
 
-1. Install Tailscale, OpenSSH, Git, and Python 3.9+, and Node.js on Omarchy.
+1. Install Tailscale, OpenSSH, Git, Python 3.9+, and Node.js on Omarchy.
 2. [Install the pinned Hermes runtime](compat/hermes/README.md) and configure it on the remote host (Hermes uses Python 3.11).
 3. Build Hermachy’s four standalone zipapps and bundled native TUI.
 4. Run `hermachy-admin studio-prepare` on the remote host.
@@ -68,14 +69,15 @@ cd hermachy
 python3 scripts/build_zipapps.py
 ```
 
-The reproducible, dependency-free runtime artifacts are:
+The build produces four Python zipapps that use the standard library, plus the
+bundled renderer:
 
 ```text
 dist/hermachy          # Omarchy client
 dist/hermachy-server   # forced-command endpoint on the remote Hermes host
 dist/hermachy-admin    # install and revoke utility
 dist/hermachy-gateway  # local stdio-to-SSH transport
-dist/tui/           # renderer, provenance, and license
+dist/tui/              # renderer, provenance, and license
 ```
 
 Python 3.9 or newer is required. The Omarchy client also requires Node.js.
@@ -86,12 +88,15 @@ provides `hermachy-0.4.0.tar.gz` with all four executables and the required `tui
 assets. That historical archive predates the compatibility installer; use this
 source checkout's `compat/hermes/` directory to prepare Hermes. New bundles
 built from this tree include the patch, installer, manifest, and setup docs.
-For downloaded bundles, obtain `SHA256SUMS`, run `sha256sum -c SHA256SUMS`, then
-extract and follow the setup guide. Keep the executables and `tui/` together.
+For downloaded bundles, obtain the matching `SHA256SUMS`, verify it with
+`sha256sum -c SHA256SUMS` on Linux or `shasum -a 256 -c SHA256SUMS` on macOS, then
+follow the [archive installation steps](docs/OMARCHY_REMOTE_HERMES.md#5-prepare-the-hermachy-release-directory).
+Keep the executables and `tui/` together until the installer copies them into
+their installed locations.
 The desktop app is installed from the source checkout using the
-[desktop guide](desktop/README.md).
+[desktop guide](https://github.com/kzndk/hermachy/blob/v0.4.0/desktop/README.md).
 
-To reproduce the release bundle and verify the committed runtime hashes:
+To build a bundle from the current source and verify the committed runtime hashes:
 
 ```bash
 python3 scripts/build_release.py --check
@@ -101,11 +106,15 @@ Maintainers run it without `--check` after changing the Python runtime to refres
 `release-sha256.json`. The versioned archive and `SHA256SUMS` are written to
 `dist/release/`.
 
+The archive is deterministic for the same source tree. A later commit can
+produce a different archive even while the version remains `0.4.0`; use the
+source at tag `v0.4.0` when reproducing the historical release.
+
 ## Use
 
 ### Desktop app for Omarchy
 
-The [Hermachy app](desktop/README.md) adds streaming chat, searchable saved
+The [Hermachy app](https://github.com/kzndk/hermachy/blob/v0.4.0/desktop/README.md) adds streaming chat, searchable saved
 conversations, file and image attachments, and three original animated companions
 that react while your agent works. It uses the same CLI configuration and SSH
 connection. See the desktop guide for installation, then open **Hermachy** from
@@ -159,9 +168,9 @@ Hermachy endpoints together to 0.4.0 for these features.
 
 ## Hermes compatibility
 
-The supported recipe is **Hermes
+The supported recipe is Hermes
 [`8e0b9819d3be29e1628da4014c8065243402964b`](https://github.com/NousResearch/hermes-agent/commit/8e0b9819d3be29e1628da4014c8065243402964b)
-+ the bundled [safe-executor v2 patch](compat/hermes/safe-executor-v2.patch)**.
+with the bundled [safe-executor v2 patch](compat/hermes/safe-executor-v2.patch).
 The [compatibility manifest](compat/hermes/manifest.json) pins the patch SHA-256
 and resulting Git tree. No private fork is required.
 
@@ -176,11 +185,14 @@ locked dependencies into `venv/`, configure your provider, and verify the source
 and capability. Keep this source pinned; arbitrary Hermes updates are not a
 supported upgrade path.
 
-Hermachy requires the remote Hermes runtime to export:
+Hermachy requires this Python module constant in the remote Hermes runtime:
 
-```text
-HERMACHY_CONTROL_VERSION=2
+```python
+from tools.environments.ssh import HERMACHY_CONTROL_VERSION
+assert HERMACHY_CONTROL_VERSION == "2"
 ```
+
+It is not an environment variable to set during installation.
 
 Capability v2 includes the local TUI gateway contract and preserves the v1 execution boundary. It is a behavioral contract, not merely a constant. It must guarantee that:
 

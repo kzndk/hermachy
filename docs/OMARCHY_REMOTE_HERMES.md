@@ -9,7 +9,7 @@ Use these names while following the guide:
 | Name | Meaning |
 |---|---|
 | **Omarchy** | Your local Linux workstation and execution machine |
-| **Remote host** | The machine that runs your authoritative Hermes Agent and TUI |
+| **Remote host** | The machine that runs your authoritative Hermes gateway and agent |
 | `OMARCHY_HOST` | Omarchy's Tailscale MagicDNS name or tailnet IP |
 | `OMARCHY_USER` | Your normal, non-root Omarchy account |
 | `REMOTE_HOST` | The remote Hermes host's Tailscale MagicDNS name or tailnet IP |
@@ -17,7 +17,12 @@ Use these names while following the guide:
 
 The commands still use `studio-*` option names because that is the current Hermachy protocol terminology. The remote host does **not** have to be a Mac Studio, but the current Hermachy admin/server implementation is POSIX-only: use macOS or Linux with Python, OpenSSH, Tailscale, and a compatible Hermes installation. Native Windows remote hosts are not supported in this pre-alpha.
 
-The current pre-alpha launches `hermes --profile=default`. The Omarchy client therefore receives access to that profile's full interactive agent experience and enabled non-terminal tools. Use only a trusted Omarchy account, or isolate the remote Hermes host at the operating-system account boundary.
+The supported setup uses the remote account's default Hermes profile at `~/.hermes`.
+The local TUI connects to a remote gateway; it does not launch a remote renderer.
+Configure the default profile explicitly as shown in the compatibility guide,
+and do not set a custom `HERMES_HOME` for the SSH server. The Omarchy client
+receives access to that profile's agent and enabled non-terminal tools. Use only
+a trusted Omarchy account, or isolate Hermes in a separate operating-system account.
 
 Hermachy installs two dedicated Ed25519 key pairs:
 
@@ -75,8 +80,8 @@ After following it, Hermes must work locally for `REMOTE_USER`:
 ```bash
 whoami
 hostname
-"$HOME/.local/share/hermachy/hermes-safe-executor-v2/venv/bin/hermes" --version
-"$HOME/.local/share/hermachy/hermes-safe-executor-v2/venv/bin/hermes" doctor
+"$HOME/.local/share/hermachy/hermes-safe-executor-v2/venv/bin/hermes" --profile=default --version
+"$HOME/.local/share/hermachy/hermes-safe-executor-v2/venv/bin/hermes" --profile=default doctor
 python3 --version
 tailscale status
 ```
@@ -138,7 +143,8 @@ ping -c 1 REMOTE_HOST
 ping -c 1 OMARCHY_HOST
 ```
 
-Replace every uppercase placeholder in the rest of this guide with the real value. Do not include angle brackets in commands.
+Replace `REMOTE_HOST`, `REMOTE_USER`, `OMARCHY_HOST`, and `OMARCHY_USER` in the
+commands with your actual values. Shell variables such as `$HOME` expand normally.
 
 ## 4. Verify and record SSH host keys before first Hermachy connection
 
@@ -186,39 +192,61 @@ rm /tmp/hermachy-omarchy-hostkey
 
 If the local public host-key file is unavailable, ask the machine administrator for its fingerprint. If `known_hosts` already contains an entry for either exact name, verify that entry rather than blindly appending another one. Never work around a mismatch with `StrictHostKeyChecking=no`.
 
-## 5. Build Hermachy
+## 5. Prepare the Hermachy release directory
 
-On either trusted machine:
+Choose one of the following methods. Later steps run from a directory containing
+`hermachy`, `hermachy-server`, `hermachy-admin`, `hermachy-gateway`, and `tui/`.
+
+### Build from source
+
+On the remote host, return to the Hermachy checkout used for Step 2. The
+compatibility guide's default location is `~/src/hermachy`; substitute your
+checkout path if different:
 
 ```bash
-git clone https://github.com/kzndk/hermachy.git
-cd hermachy
+cd ~/src/hermachy
 PYTHONPATH=src python3 -m unittest discover -s tests -q
 python3 scripts/build_zipapps.py
+cd dist
 ```
 
-This creates:
+The four executables are standalone Python zipapps requiring Python 3.9+.
+The renderer in `tui/` requires Node.js on Omarchy. The builder verifies renderer
+and parser provenance. If you build on Omarchy instead, transfer this complete
+`dist/` directory to the remote host and enter the transferred directory there.
 
-```text
-dist/hermachy
-dist/hermachy-server
-dist/hermachy-admin
-dist/hermachy-gateway
-dist/tui/
+### Use a release archive
+
+Download `hermachy-0.4.0.tar.gz` and its matching `SHA256SUMS` from the
+[release page](https://github.com/kzndk/hermachy/releases/tag/v0.4.0) into the same
+directory on the remote host. From that download directory, verify the archive:
+
+```bash
+sha256sum -c SHA256SUMS           # Linux
+# On macOS, use: shasum -a 256 -c SHA256SUMS
 ```
 
-The four executables are standalone Python zipapps requiring Python 3.9+. The local renderer in `dist/tui/` also requires Node.js. The builder checks the renderer and parser provenance before producing the release.
+After verification succeeds, extract into a new directory and enter it:
 
-For the following steps, keep this repository checkout on the remote host. If you built on Omarchy, transfer the repository or the `dist/` release directory to the remote host without transferring any private key.
+```bash
+mkdir hermachy-release
+tar -xzf hermachy-0.4.0.tar.gz -C hermachy-release
+cd hermachy-release
+```
+
+The release archive puts the executables at its root; it has no `dist/` directory.
+The original `v0.4.0` archive also predates `compat/hermes/`; use the current
+source checkout for the Hermes setup in Step 2. Bundles built from the current
+source include the compatibility installer and these docs.
 
 ## 6. Phase A — prepare the remote host
 
-On the remote host, from the Hermachy repository:
+On the remote host, from the release directory prepared in Step 5:
 
 ```bash
-./dist/hermachy-admin studio-prepare \
-  --output-dir ./dist/handoff \
-  --admin-artifact ./dist/hermachy-admin
+./hermachy-admin studio-prepare \
+  --output-dir ./handoff \
+  --admin-artifact ./hermachy-admin
 ```
 
 This creates or validates the remote-host-to-Omarchy execution key:
@@ -226,7 +254,7 @@ This creates or validates the remote-host-to-Omarchy execution key:
 ```text
 ~/.ssh/hermachy_to_omarchy          # private; stays on the remote host
 ~/.ssh/hermachy_to_omarchy.pub      # public
-./dist/handoff/studio-executor.pub
+./handoff/studio-executor.pub
 ```
 
 Transfer the complete client release and public handoff key to Omarchy, preserving this layout:
@@ -244,7 +272,7 @@ studio-executor.pub
 Use an authenticated file transfer. For example, prepare a bootstrap archive on the remote host:
 
 ```bash
-tar -C dist -czf hermachy-bootstrap.tar.gz hermachy hermachy-admin hermachy-gateway tui \
+tar -czf hermachy-bootstrap.tar.gz hermachy hermachy-admin hermachy-gateway tui \
   -C handoff studio-executor.pub
 ```
 
@@ -276,6 +304,8 @@ The command installs:
 ```text
 ~/.local/bin/hermachy
 ~/.local/bin/hermachy-admin
+~/.local/bin/hermachy-gateway
+~/.local/share/hermachy/tui/
 ~/.config/hermachy/client.json
 ~/.ssh/hermachy_to_morpheus          # client private key; stays on Omarchy
 ~/.ssh/hermachy_to_morpheus.pub
@@ -295,20 +325,39 @@ hermachy --version
 
 Persist the `PATH` line in your shell profile if required.
 
-Transfer only Omarchy's new client public key back to the remote host:
+Transfer only Omarchy's new client public key back to the remote host using an
+authenticated file transfer. One option is Taildrop:
 
 ```bash
 tailscale file cp ~/.ssh/hermachy_to_morpheus.pub REMOTE_HOST:
 ```
 
+[Taildrop requires](https://tailscale.com/docs/features/taildrop) Send Files to be
+enabled and both devices to belong to the same Tailscale user; tagged nodes are
+not supported. If that does not fit your setup, use an existing ordinary SSH/SFTP
+login or another trusted transfer to place the public key at
+`~/Downloads/hermachy-inbox/hermachy_to_morpheus.pub` on the remote host. Hermachy's
+dedicated client key does not grant an ordinary shell or SFTP access.
+
 ## 8. Phase C — finish the remote endpoint
 
-On the remote host, retrieve the public key:
+On a Linux remote host, retrieve a Taildrop-delivered public key with:
 
 ```bash
 mkdir -p ~/Downloads/hermachy-inbox
 tailscale file get ~/Downloads/hermachy-inbox
 ```
+
+On macOS, Taildrop places received files in `~/Downloads`. Move the received key
+into the same inbox layout:
+
+```bash
+mkdir -p ~/Downloads/hermachy-inbox
+mv ~/Downloads/hermachy_to_morpheus.pub ~/Downloads/hermachy-inbox/
+```
+
+If you used another transfer method, ensure the key is at that inbox path before
+continuing; skip the Taildrop retrieval commands.
 
 Resolve the exact Hermes source/runtime path:
 
@@ -317,11 +366,11 @@ test -x "$HOME/.local/share/hermachy/hermes-safe-executor-v2/venv/bin/python"
 test -x "$HOME/.local/share/hermachy/hermes-safe-executor-v2/venv/bin/hermes"
 ```
 
-Then, from the Hermachy repository, install the server endpoint:
+Then return to the same release directory used in Phase A and install the server endpoint:
 
 ```bash
-./dist/hermachy-admin studio-finish \
-  --artifact ./dist/hermachy-server \
+./hermachy-admin studio-finish \
+  --artifact ./hermachy-server \
   --executor-host OMARCHY_HOST \
   --executor-user OMARCHY_USER \
   --client-public-key ~/Downloads/hermachy-inbox/hermachy_to_morpheus.pub \
@@ -391,7 +440,10 @@ cd ~/code/my-project
 hermachy
 ```
 
-The screen is the native Hermes TUI rendered locally. Its models, memory, skills, sessions, and credentials remain on the remote host. Terminal, file, search, patch, build, test, and code-execution tools use Omarchy.
+The screen is the native Hermes TUI rendered locally. The gateway, credentials,
+and authoritative session/profile storage remain on the remote host. Native
+file and code tools use Omarchy. Terminal commands default to Omarchy; the agent
+can explicitly choose `target="hermes"` for a command on the remote host.
 
 Session options:
 
@@ -408,7 +460,7 @@ hermachy --cwd /home/alex/code/my-project
 Inside the Hermachy TUI, ask Hermes:
 
 ```text
-Use the terminal to run: hostname; whoami; pwd; uname -s
+Use the terminal with target="omarchy" to run: hostname; whoami; pwd; uname -s
 Then create .hermachy-smoke.txt in the current project with the text hermachy-ok,
 read it back with the file tool, and verify it with the code-execution tool.
 Do not use sudo and do not touch files outside this project.

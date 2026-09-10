@@ -24,10 +24,24 @@ Run as the normal account that will own Hermes. You need Git, Python 3.9+ with
 venv/pip support, and outbound HTTPS access to GitHub and the Python package
 downloads. On Debian/Ubuntu, install `git` and `python3-venv` if missing.
 
-From the Hermachy repository checkout (or a new release bundle containing
-`compat/hermes/`):
+Start with a Hermachy checkout containing this guide. If you do not have one,
+clone it on the remote host:
 
 ```bash
+mkdir -p ~/src
+git clone https://github.com/kzndk/hermachy.git ~/src/hermachy
+cd ~/src/hermachy
+```
+
+If you already have a checkout, `cd` to its root instead. For a release bundle
+that includes `compat/hermes/`, `cd` to the extracted bundle root. The original
+`v0.4.0` archive does not include this directory; use a current source checkout
+for its Hermes setup.
+
+Record this directory so later checks work after changing to the Hermes tree:
+
+```bash
+HERMACHY_INSTALL_SOURCE="$PWD"
 python3 compat/hermes/prepare.py "$HOME/.local/share/hermachy/hermes-safe-executor-v2"
 ```
 
@@ -67,28 +81,45 @@ reject missing optional dependencies instead of installing packages mid-session.
 
 ## 3. Configure and check Hermes locally
 
-From that Hermes source directory:
+Configure your model and credentials on this remote host only. Hermachy's
+supported setup uses the account's **default** Hermes profile at `~/.hermes`.
+Do not set a custom `HERMES_HOME` in the SSH server's environment for this setup.
+An existing non-default active profile is not a substitute for configuring the
+default profile.
+
+From the Hermes source directory, run setup only if the default profile still
+needs configuration:
 
 ```bash
-venv/bin/hermes --version
-venv/bin/hermes setup
-venv/bin/hermes doctor
+venv/bin/hermes --profile=default setup
+```
+
+`setup` modifies the default profile. If it is already configured, skip that
+command and keep its settings. Then check the runtime:
+
+```bash
+venv/bin/hermes --profile=default --version
+venv/bin/hermes --profile=default doctor
 venv/bin/python -c 'from tools.environments.ssh import HERMACHY_CONTROL_VERSION; assert HERMACHY_CONTROL_VERSION == "2"; print("Hermachy safe-executor v2: OK")'
 ```
 
-Configure your model and credentials on this remote host only. `setup` writes to
-the account's Hermes profile; if that account already has a configured default
-profile, keep it and skip `setup`. Hermachy currently uses that **default** profile.
+Hermes doctor also checks optional integrations and may report features you have
+not installed. Resolve errors for your chosen provider and tools using the
+locked dependency sync above. The final `hermachy --doctor` check in the setup
+guide verifies the Hermachy connection separately.
 
-From the Hermachy checkout, verify source provenance again:
+Verify source provenance using the directory recorded in Step 1:
 
 ```bash
-python3 compat/hermes/prepare.py --check "$HOME/.local/share/hermachy/hermes-safe-executor-v2"
+python3 "$HERMACHY_INSTALL_SOURCE/compat/hermes/prepare.py" --check "$HOME/.local/share/hermachy/hermes-safe-executor-v2"
 ```
 
-This checks the base revision, patch checksum, resulting source tree, and working
-file drift. The import probe checks that the installed runtime loads capability
-v2. Neither substitutes for behavioral tests or the two-machine SSH checks.
+In a new shell, set `HERMACHY_INSTALL_SOURCE` to that same absolute checkout or
+bundle path first. Source verification checks the base revision, patch checksum,
+Git tree, tracked working files, and unexpected unignored files. It does not
+audit ignored files such as the virtualenv or installed package contents. The
+import probe checks that the installed runtime loads capability v2. Neither
+substitutes for behavioral tests or the two-machine SSH checks.
 
 Continue with [the two-machine setup guide](../../docs/OMARCHY_REMOTE_HERMES.md#3-record-and-verify-both-tailscale-identities).
 At `studio-finish`, use:

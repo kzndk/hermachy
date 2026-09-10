@@ -32,13 +32,13 @@ The dedicated `~/.ssh/hermachy_to_morpheus` private key stays on Omarchy. The fi
 
 The key:
 
-- may allocate a PTY for the real Hermes TUI;
+- may allocate a PTY for the legacy remote TUI path; the current local renderer uses a non-PTY gateway connection;
 - may invoke only `hermachy-server`;
 - may not obtain an ordinary remote-host shell;
 - may not forward ports, agents, or X11;
 - may not run user SSH rc files.
 
-The forced server accepts only `hermachy-v1` plus a bounded, URL-safe base64 JSON request. It does not evaluate the request as shell text. Supported requests are new session, continue, resume, and doctor.
+The forced server accepts only `hermachy-v1` plus a bounded, URL-safe base64 JSON request. It does not evaluate the request as shell text. Supported actions are `new`, `continue`, `resume`, `doctor`, `gateway`, and `resolve`.
 
 **Important:** the forced command limits SSH, not Hermes itself. Anyone holding the Omarchy client key can interact with the configured remote Hermes profile and whatever non-terminal tools that profile permits. Protect the Omarchy account and private key accordingly.
 
@@ -96,7 +96,7 @@ The stream keeps bounded unacknowledged data in memory and deduplicates replayed
 records. The supervisor expires after one hour without an attachment. Exit from
 the TUI requests shutdown; loss of SSH alone does not stop the running agent.
 
-The Hermachy-only `terminal(target="hermes")` tool explicitly permits commands on either
+The Hermachy terminal extension accepts `target="omarchy"` or `target="hermes"` for commands on either
 machine. The `hermes` target executes as the remote Hermes user using the Hermes
 local environment and command approval checks. It therefore has access to that
 user's remote files and programs. This is an intentional addition to the trust
@@ -107,7 +107,8 @@ Routing is explicit per call, with no fallback to the other machine on failure.
 
 ## Secrets and authoritative state
 
-With safe-executor capability v2 active, these stay on the remote Hermes host:
+With safe-executor capability v2 active, authoritative storage for these remains
+on the remote Hermes host, without automatic synchronization to Omarchy:
 
 - model and provider credentials;
 - `.env`, `auth.json`, and credential pools;
@@ -115,6 +116,10 @@ With safe-executor capability v2 active, these stay on the remote Hermes host:
 - skills and cache;
 - session database and transcripts;
 - the authoritative Hermes configuration.
+
+The local renderer receives conversation and tool output for display. This
+storage boundary does not prevent an authorized agent command from reading
+remote files and returning their contents to the client.
 
 The Omarchy client configuration contains only the remote hostname, username, port, and local path to its dedicated private key. The doctor response does not print identity paths or key material.
 

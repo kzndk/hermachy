@@ -35,7 +35,7 @@ Upgrade both Hermachy endpoints together. Close active clients first, replace th
 four executables and bundled TUI assets using the
 [setup and upgrade guide](docs/OMARCHY_REMOTE_HERMES.md), then run
 `hermachy --doctor`. Install or update the desktop app separately using
-the [desktop guide](desktop/README.md).
+the [desktop guide](https://github.com/kzndk/hermachy/blob/v0.4.0/desktop/README.md).
 
 This remains a public pre-alpha requiring a tested Hermes build with
 safe-executor capability v2. Stock Hermes builds without that contract are
