@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.4.1 — 2026-09-12
+
+- Update the native Hermes TUI and CLI parser to upstream `53c57871` (2026-09-12),
+  including subagent controls, input handling, Markdown, and terminal layout fixes.
+  Refresh renderer provenance and release checksums together.
 - Add a public, pinned Hermes installation recipe with the complete safe-executor
   v2 patch, source and patch verification, locked dependencies, and Linux/macOS
   compatibility CI. Include the installer and setup docs in new release bundles.

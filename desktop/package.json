@@ -1,7 +1,7 @@
 {
   "name": "hermachy-desktop",
   "productName": "Hermachy",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "private": true,
   "description": "Your Hermes agent, at home on Omarchy",
   "main": "main.cjs",

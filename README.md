@@ -60,7 +60,7 @@ Quick outline:
 
 ## Build
 
-Version **0.4.0** includes the CLI, connection recovery, explicit execution
+Version **0.4.1** includes the CLI, connection recovery, explicit execution
 targets, and the optional Omarchy desktop app. See [release notes](CHANGELOG.md).
 
 ```bash
@@ -82,6 +82,13 @@ dist/tui/              # renderer, provenance, and license
 
 Python 3.9 or newer is required. The Omarchy client also requires Node.js.
 The build verifies the bundled renderer and parser against `tui/PROVENANCE.json`.
+
+The renderer and parser are vendored from Hermes
+[`53c57871d67ee7d2202861aacc4ea0ef6ef93112`](https://github.com/NousResearch/hermes-agent/commit/53c57871d67ee7d2202861aacc4ea0ef6ef93112)
+(2026-09-12). The renderer is built with the upstream lockfile and
+`npm run build --workspace ui-tui`; `hermes_cli/_parser.py` is copied verbatim.
+This UI revision is separate from the safe-executor runtime recipe below:
+updating the renderer does not replace the remote Hermes runtime or its patches.
 
 The [0.4.0 release](https://github.com/kzndk/hermachy/releases/tag/v0.4.0)
 provides `hermachy-0.4.0.tar.gz` with all four executables and the required `tui/`
@@ -107,8 +114,8 @@ Maintainers run it without `--check` after changing the Python runtime to refres
 `dist/release/`.
 
 The archive is deterministic for the same source tree. A later commit can
-produce a different archive even while the version remains `0.4.0`; use the
-source at tag `v0.4.0` when reproducing the historical release.
+produce a different archive with the same version label; use the source at
+tag `v0.4.0` when reproducing the historical release.
 
 ## Use
 
