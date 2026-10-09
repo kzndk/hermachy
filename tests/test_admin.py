@@ -156,6 +156,7 @@ class AdminTests(unittest.TestCase):
             artifact = root / "hermachy"
             artifact.write_bytes(b"#!/usr/bin/env python3\nprint('hermachy')\n")
             (root / "hermachy-gateway").write_bytes(b"#!/usr/bin/env python3\n")
+            (root / "hermachy-exec").write_bytes(b"#!/usr/bin/env python3\n")
             (root / "tui").mkdir()
             (root / "tui/entry.mjs").write_text('// native TUI fixture\n')
             studio_pub = root / "studio.pub"
@@ -178,10 +179,12 @@ class AdminTests(unittest.TestCase):
                 self.assertEqual(main(args), 0)
             self.assertEqual(first, authorized.read_text())
             self.assertIn("unrelated", first)
-            self.assertIn("restrict ssh-ed25519", first)
+            self.assertIn('restrict,command="', first)
+            self.assertIn('hermachy-exec" ssh-ed25519', first)
             self.assertTrue((home / ".local" / "bin" / "hermachy").is_file())
             self.assertTrue((home / ".local" / "bin" / "hermachy-admin").is_file())
             self.assertTrue((home / ".local" / "bin" / "hermachy-gateway").is_file())
+            self.assertTrue((home / ".local" / "bin" / "hermachy-exec").is_file())
             self.assertTrue((home / ".local/share/hermachy/tui/entry.mjs").is_file())
             self.assertFalse((home / ".local" / "bin" / "hermachy").is_symlink())
             config_path = home / ".config" / "hermachy" / "client.json"

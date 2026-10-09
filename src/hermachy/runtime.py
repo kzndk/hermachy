@@ -78,6 +78,48 @@ def route_terminal(args, **context) -> str:
                    **context)
 
 
+def workstation_environment(base):
+    """Keep execution failures from entering Hermes's command retry loop."""
+    class WorkstationSSHEnvironment(base):
+        _hermachy_keepalive = True
+
+        def _snapshot_excluded_passthrough_names(self):
+            from .executor import DESKTOP_ENV
+            # Restore freshly supplied desktop settings even when resuming
+            # an old snapshot, and omit them from the next saved snapshot.
+            return tuple(sorted(set(super()._snapshot_excluded_passthrough_names()) | DESKTOP_ENV))
+
+        def _build_ssh_command(self, extra_args=None, **kwargs):
+            argv = super()._build_ssh_command(extra_args, **kwargs)
+            return [argv[0], "-o", "ServerAliveInterval=15",
+                    "-o", "ServerAliveCountMax=3", *argv[1:]]
+
+        def _prepare_command(self, command):
+            # Root authentication belongs to polkit on the workstation. Never
+            # request/cache a workstation password in the remote Hermes process.
+            return command, None
+
+        def execute(self, *args, **kwargs):
+            try:
+                result = super().execute(*args, **kwargs)
+            except Exception as exc:
+                # Upstream retries arbitrary execute() exceptions four times.
+                # They can occur AFTER a command changes the machine. Returning
+                # a failure preserves that boundary and avoids duplicate writes.
+                result = {"returncode": 255,
+                          "output": f"Hermachy execution failed ({type(exc).__name__})."}
+            if result.get("returncode") in (124, 255):
+                result = dict(result)
+                result["hermachy_outcome_unknown"] = True
+                result["output"] = (result.get("output", "") +
+                    "\nHermachy: command outcome is uncertain. Inspect the Omarchy "
+                    "processes and resulting state before retrying; do not rerun "
+                    "the command automatically or on the other machine.")
+            return result
+
+    return WorkstationSSHEnvironment
+
+
 def install():
     if os.environ.get("HERMACHY_REQUIRE_SAFE_EXECUTOR") != "1":
         raise RuntimeError("Hermachy execution extension requires its protected launcher")
@@ -87,15 +129,9 @@ def install():
     # subclass retains the tested Hermes identity and no-sync implementation.
     from tools.environments import ssh
     if not getattr(ssh.SSHEnvironment, "_hermachy_keepalive", False):
-        class KeepaliveSSHEnvironment(ssh.SSHEnvironment):
-            _hermachy_keepalive = True
-
-            def _build_ssh_command(self, extra_args=None):
-                argv = super()._build_ssh_command(extra_args)
-                return [argv[0], "-o", "ServerAliveInterval=15",
-                        "-o", "ServerAliveCountMax=3", *argv[1:]]
-
-        ssh.SSHEnvironment = KeepaliveSSHEnvironment
+        ssh.SSHEnvironment = workstation_environment(ssh.SSHEnvironment)
+    from .workstation_paths import install as install_workstation_paths
+    install_workstation_paths()
     # Extend the existing core terminal schema so routing is visible on every
     # turn, including when Hermes defers extension tools behind tool_search.
     from tools import terminal_tool as terminal
@@ -112,7 +148,13 @@ def install():
         "belongs to the selected machine. Hermes defaults to the remote user's "
         "home and supports foreground commands up to 300 seconds. Omarchy "
         "defaults to the session workspace and retains background/process tools. "
-        "Discover desktop commands with 'omarchy commands'.\n\n"
+        "Desktop session access is supplied automatically by hermachy-exec. "
+        "Discover desktop commands with 'omarchy commands'. For root operations "
+        "use 'hermachy-exec --admin COMMAND [ARG ...]' on Omarchy; authentication "
+        "appears on the workstation desktop. For shell syntax as root use "
+        "'hermachy-exec --admin /bin/bash -c <quoted script>'. Never ask for "
+        "passwords in chat or pipe passwords into sudo. Respect authentication "
+        "cancellation and do not retry a cancelled operation.\n\n"
         + schema["description"]
     )
     schema["parameters"]["properties"]["target"] = {

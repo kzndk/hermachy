@@ -44,9 +44,21 @@ The forced server accepts only `hermachy-v1` plus a bounded, URL-safe base64 JSO
 
 ### Remote-host-to-Omarchy key
 
-The dedicated `~/.ssh/hermachy_to_omarchy` private key stays on the remote Hermes host. Only its public key is installed on Omarchy with OpenSSH's `restrict` option.
+The dedicated `~/.ssh/hermachy_to_omarchy` private key stays on the remote Hermes host. Only its public key is installed on Omarchy with OpenSSH's `restrict` option and a forced `hermachy-exec` entry point.
 
 The key intentionally permits arbitrary non-PTY shell commands as the normal Omarchy user. This is the mechanism used by Hermes's protected SSH terminal backend for terminal, file, patch, search, and code-execution tools.
+
+The workstation entry point imports an allowlist of desktop connection settings
+from the local user service manager. It supplies the current display, user bus,
+and command paths without importing provider credentials or shell startup code
+from that manager. It is an environment bridge, not a command sandbox.
+
+`hermachy-exec --admin` requests root execution through polkit in a transient
+user service, so the workstation's graphical authentication agent handles the
+password. It preserves arguments and exit status and stops the transient service
+on caller cancellation. No sudoers or passwordless polkit rule is installed.
+Authorization cancellation is a failed command and must not be automatically
+retried. The executable requested for root execution must be trusted by the user.
 
 The key:
 
@@ -86,7 +98,7 @@ mismatched key as a security event. Never work around it with
 
 ## Persistent gateway and explicit host execution
 
-Hermachy 0.4.0 keeps the gateway in a detached supervisor on the Hermes host.
+Hermachy keeps the gateway in a detached supervisor on the Hermes host.
 Private Unix sockets under `/tmp/hermachy-<uid>/` accept attachments through the
 existing forced-command SSH endpoint. Connection IDs are random 128-bit values.
 Durable creation records under `~/.local/state/hermachy/connections/` prevent a

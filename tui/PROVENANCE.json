@@ -1,8 +1,9 @@
 {
-  "hermes_revision": "53c57871d67ee7d2202861aacc4ea0ef6ef93112",
+  "hermes_revision": "f97608f178d1ffeca59860195ab7da295f7c8e5f",
   "upstream": "https://github.com/NousResearch/hermes-agent",
   "assets": {
-    "entry.mjs": "c310a1c9219b6e6e26f8ed9247d9e91f6ed5cc8f2ffc204227e0e7dde241d237",
-    "hermes_parser.py": "8f6573f8bc211208ae884e9ca21987240abd28bc3312c7189f323286dfc29a21"
-  }
+    "entry.mjs": "f535c8ac5384b9c4a742e15cbfb847e30433f26541818f2738905b0290f78f6e",
+    "hermes_parser.py": "57e96f943880933d9caa30ab26a49ca5c6041631e199e8b3aec17548b76352ca"
+  },
+  "hermes_release": "v2026.9.24"
 }

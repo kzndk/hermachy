@@ -4,10 +4,51 @@ from types import ModuleType
 import unittest
 from unittest import mock
 
-from hermachy.runtime import execute, route_terminal
+from hermachy.runtime import execute, route_terminal, workstation_environment
 
 
 class ExecutionTests(unittest.TestCase):
+    def test_executor_exception_becomes_uncertain_result_without_retry(self):
+        class Backend:
+            calls = 0
+
+            def execute(self, command, **kwargs):
+                self.calls += 1
+                raise OSError("connection lost after starting the command")
+
+        environment = workstation_environment(Backend)()
+        result = environment.execute("change the machine", timeout=30)
+        self.assertEqual(environment.calls, 1)
+        self.assertEqual(result["returncode"], 255)
+        self.assertTrue(result["hermachy_outcome_unknown"])
+        self.assertIn("do not rerun", result["output"])
+
+    def test_executor_keeps_current_desktop_and_never_collects_sudo_passwords(self):
+        class Backend:
+            def _snapshot_excluded_passthrough_names(self):
+                return ("SESSION_FIELD",)
+
+            def _prepare_command(self, command):
+                raise AssertionError("password handling must not run on Hermes")
+
+        environment = workstation_environment(Backend)()
+        names = environment._snapshot_excluded_passthrough_names()
+        self.assertIn("SESSION_FIELD", names)
+        self.assertIn("HYPRLAND_INSTANCE_SIGNATURE", names)
+        self.assertIn("WAYLAND_DISPLAY", names)
+        self.assertEqual(environment._prepare_command("sudo id"), ("sudo id", None))
+
+    def test_executor_preserves_normal_failures_and_marks_ssh_loss_or_timeout(self):
+        class Backend:
+            def execute(self, command):
+                return {"returncode": int(command), "output": "partial output"}
+
+        environment = workstation_environment(Backend)()
+        for code in (0, 1, 124, 255):
+            result = environment.execute(str(code))
+            self.assertEqual(result["returncode"], code)
+            self.assertEqual(bool(result.get("hermachy_outcome_unknown")), code in (124, 255))
+
     def modules(self, *, approved=True):
         terminal = ModuleType("tools.terminal_tool")
         terminal.terminal_tool = mock.Mock(return_value='{"exit_code":0,"output":"omarchy"}')

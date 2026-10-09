@@ -19,6 +19,7 @@ ENTRYPOINTS = {
     "hermachy-server": ROOT / "entrypoints" / "server" / "__main__.py",
     "hermachy-admin": ROOT / "entrypoints" / "admin" / "__main__.py",
     "hermachy-gateway": ROOT / "entrypoints" / "gateway" / "__main__.py",
+    "hermachy-exec": ROOT / "entrypoints" / "executor" / "__main__.py",
 }
 SHEBANG = b"#!/usr/bin/env python3\n"
 FIXED_ZIP_TIMESTAMP = (1980, 1, 1, 0, 0, 0)

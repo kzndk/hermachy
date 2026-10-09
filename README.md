@@ -52,7 +52,7 @@ Quick outline:
 
 1. Install Tailscale, OpenSSH, Git, Python 3.9+, and Node.js on Omarchy.
 2. [Install the pinned Hermes runtime](compat/hermes/README.md) and configure it on the remote host (Hermes uses Python 3.11).
-3. Build Hermachy’s four standalone zipapps and bundled native TUI.
+3. Build or download Hermachy’s five standalone zipapps and bundled native TUI.
 4. Run `hermachy-admin studio-prepare` on the remote host.
 5. Run `hermachy-admin omarchy-install` on Omarchy.
 6. Run `hermachy-admin studio-finish` on the remote host.
@@ -60,16 +60,16 @@ Quick outline:
 
 ## Build
 
-Version **0.4.1** includes the CLI, connection recovery, explicit execution
-targets, and the optional Omarchy desktop app. See [release notes](CHANGELOG.md).
+Version **0.4.3** includes desktop session access, graphical administration,
+connection recovery, and explicit execution targets. See [release notes](CHANGELOG.md).
 
 ```bash
-git clone https://github.com/kzndk/hermachy.git
+git clone --branch v0.4.3 --depth 1 https://github.com/kzndk/hermachy.git
 cd hermachy
 python3 scripts/build_zipapps.py
 ```
 
-The build produces four Python zipapps that use the standard library, plus the
+The build produces five Python zipapps that use the standard library, plus the
 bundled renderer:
 
 ```text
@@ -77,6 +77,7 @@ dist/hermachy          # Omarchy client
 dist/hermachy-server   # forced-command endpoint on the remote Hermes host
 dist/hermachy-admin    # install and revoke utility
 dist/hermachy-gateway  # local stdio-to-SSH transport
+dist/hermachy-exec     # workstation SSH entry point and graphical administration
 dist/tui/              # renderer, provenance, and license
 ```
 
@@ -84,24 +85,21 @@ Python 3.9 or newer is required. The Omarchy client also requires Node.js.
 The build verifies the bundled renderer and parser against `tui/PROVENANCE.json`.
 
 The renderer and parser are vendored from Hermes
-[`53c57871d67ee7d2202861aacc4ea0ef6ef93112`](https://github.com/NousResearch/hermes-agent/commit/53c57871d67ee7d2202861aacc4ea0ef6ef93112)
-(2026-09-12). The renderer is built with the upstream lockfile and
+[`f97608f178d1ffeca59860195ab7da295f7c8e5f`](https://github.com/NousResearch/hermes-agent/commit/f97608f178d1ffeca59860195ab7da295f7c8e5f)
+(Hermes 0.21.5, release `v2026.9.24`). The renderer is built with the upstream lockfile and
 `npm run build --workspace ui-tui`; `hermes_cli/_parser.py` is copied verbatim.
-This UI revision is separate from the safe-executor runtime recipe below:
-updating the renderer does not replace the remote Hermes runtime or its patches.
+The renderer, parser, and safe-executor runtime now use the same release. The
+standalone client adapts the parser’s config-path help to describe the remote
+profile. Upgrade both endpoints and the runtime together using the pinned recipe.
 
-The [0.4.0 release](https://github.com/kzndk/hermachy/releases/tag/v0.4.0)
-provides `hermachy-0.4.0.tar.gz` with all four executables and the required `tui/`
-assets. That historical archive predates the compatibility installer; use this
-source checkout's `compat/hermes/` directory to prepare Hermes. New bundles
-built from this tree include the patch, installer, manifest, and setup docs.
+The [0.4.3 release](https://github.com/kzndk/hermachy/releases/tag/v0.4.3)
+provides `hermachy-0.4.3.tar.gz` with all five executables, the required `tui/`
+assets, and the Hermes compatibility patch, installer, manifest, and setup docs.
 For downloaded bundles, obtain the matching `SHA256SUMS`, verify it with
 `sha256sum -c SHA256SUMS` on Linux or `shasum -a 256 -c SHA256SUMS` on macOS, then
 follow the [archive installation steps](docs/OMARCHY_REMOTE_HERMES.md#5-prepare-the-hermachy-release-directory).
 Keep the executables and `tui/` together until the installer copies them into
 their installed locations.
-The desktop app is installed from the source checkout using the
-[desktop guide](https://github.com/kzndk/hermachy/blob/v0.4.0/desktop/README.md).
 
 To build a bundle from the current source and verify the committed runtime hashes:
 
@@ -115,17 +113,9 @@ Maintainers run it without `--check` after changing the Python runtime to refres
 
 The archive is deterministic for the same source tree. A later commit can
 produce a different archive with the same version label; use the source at
-tag `v0.4.0` when reproducing the historical release.
+tag `v0.4.3` when reproducing this release.
 
 ## Use
-
-### Desktop app for Omarchy
-
-The [Hermachy app](https://github.com/kzndk/hermachy/blob/v0.4.0/desktop/README.md) adds streaming chat, searchable saved
-conversations, file and image attachments, and three original animated companions
-that react while your agent works. It uses the same CLI configuration and SSH
-connection. See the desktop guide for installation, then open **Hermachy** from
-the Omarchy launcher or run `hermachy-app --cwd /path/to/project`.
 
 ### Terminal interface
 
@@ -170,13 +160,39 @@ Closing the TUI deliberately shuts down its gateway. A remote reboot or gateway
 crash requires resuming the saved session with `hermachy --continue`; automatic
 transport recovery does not replay commands into a replacement agent. An
 interrupted Omarchy execution SSH connection can leave a command's outcome
-uncertain; the agent must inspect its result before retrying it. Upgrade both
-Hermachy endpoints together to 0.4.0 for these features.
+uncertain; the agent must inspect its result before retrying it. Execution
+exceptions do not enter Hermes's automatic command retry loop. Upgrade both
+Hermachy endpoints together to 0.4.3 and use the matching Hermes runtime.
+
+### Desktop and system access
+
+The dedicated execution key runs commands through `hermachy-exec`. Each command
+gets the workstation's current Hyprland, Wayland, D-Bus and command paths from
+its local user session. Desktop connection settings are refreshed after a
+compositor restart and excluded from Hermes's persistent shell snapshots.
+Ordinary terminal, file and code tools retain the workstation user's access.
+Native file paths and `~` expansion use Omarchy; the remote host's filesystem
+cannot rewrite their destinations. Host-side Hermes checkpoints are unavailable
+for these workstation paths; use version control on the workstation.
+
+For administration, the agent uses `hermachy-exec --admin COMMAND [ARG ...]` on
+Omarchy. Polkit shows the workstation's password dialog; passwords never enter
+the chat or SSH tool stream. The command runs in a transient user service so
+authentication reaches the graphical session. Cancelling the caller stops the
+service, including any pending authentication. Shell syntax requires an explicit
+shell, for example `hermachy-exec --admin /bin/bash -c 'systemctl restart example'`.
+
+`hermachy --doctor` reports desktop, Wayland, user bus, executor entry point and
+administration availability separately from transport health. A missing desktop
+produces a warning and leaves headless terminal work available. Administrative
+availability reports the authentication path; it does not pre-authorize root
+access. Re-run the Omarchy installation phase when upgrading so its SSH key uses
+the new entry point.
 
 ## Hermes compatibility
 
-The supported recipe is Hermes
-[`8e0b9819d3be29e1628da4014c8065243402964b`](https://github.com/NousResearch/hermes-agent/commit/8e0b9819d3be29e1628da4014c8065243402964b)
+The supported recipe is Hermes **0.21.5** ([stable release `v2026.9.24`](https://github.com/NousResearch/hermes-agent/releases/tag/v2026.9.24)),
+[`f97608f178d1ffeca59860195ab7da295f7c8e5f`](https://github.com/NousResearch/hermes-agent/commit/f97608f178d1ffeca59860195ab7da295f7c8e5f)
 with the bundled [safe-executor v2 patch](compat/hermes/safe-executor-v2.patch).
 The [compatibility manifest](compat/hermes/manifest.json) pins the patch SHA-256
 and resulting Git tree. No private fork is required.

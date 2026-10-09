@@ -33,11 +33,16 @@ _REQUIRED_CONFIG_FIELDS = frozenset(
 )
 _ALLOWED_CONFIG_FIELDS = _REQUIRED_CONFIG_FIELDS | {"executor_port"}
 
-_EXECUTOR_PROBE = """import base64,getpass,json,os,platform,socket,sys
+_EXECUTOR_PROBE = """import base64,getpass,json,os,platform,socket,subprocess,sys
 raw=base64.urlsafe_b64decode(sys.argv[1]+\"=\"*(-len(sys.argv[1])%4))
 cwd=raw.decode(\"utf-8\")
 os.chdir(cwd)
-print(json.dumps({\"hostname\":socket.gethostname(),\"user\":getpass.getuser(),\"cwd\":os.getcwd(),\"system\":platform.system()},sort_keys=True))
+try:
+    check=subprocess.run([\"hermachy-exec\",\"--doctor\"],stdin=subprocess.DEVNULL,capture_output=True,text=True,timeout=12)
+    access=json.loads(check.stdout) if check.returncode == 0 else {\"error\":\"workstation entry point failed\"}
+except (OSError,ValueError,subprocess.SubprocessError):
+    access={\"error\":\"install the Hermachy workstation entry point\"}
+print(json.dumps({\"hostname\":socket.gethostname(),\"user\":getpass.getuser(),\"cwd\":os.getcwd(),\"system\":platform.system(),\"access\":access},sort_keys=True))
 """
 
 
@@ -331,6 +336,7 @@ def run_doctor(config: ServerConfig, request: LaunchRequest) -> int:
                 "hermes": hermes_check.stdout.strip(),
             },
             "executor": executor,
+            "warnings": executor_warnings(executor),
         }
         print(json.dumps(report, sort_keys=True))
         return 0
@@ -356,7 +362,7 @@ def _validate_executor_report(
     if not isinstance(executor, dict):
         raise ServerError("Omarchy identity probe returned a non-object response")
     required = {"hostname", "user", "cwd", "system"}
-    if set(executor) != required:
+    if not required <= set(executor) or set(executor) - required - {"access"}:
         raise ServerError("Omarchy identity probe returned unexpected fields")
     if any(not isinstance(executor[field], str) or not executor[field] for field in required):
         raise ServerError("Omarchy identity probe returned invalid field values")
@@ -366,6 +372,20 @@ def _validate_executor_report(
         raise ServerError("executor is not Linux/Omarchy")
     if posixpath.normpath(executor["cwd"]) != posixpath.normpath(request.cwd):
         raise ServerError("Omarchy identity probe returned the wrong working directory")
+
+
+def executor_warnings(executor: dict) -> list[str]:
+    access = executor.get("access", {})
+    if not isinstance(access, dict) or access.get("version") != "1" or not access.get("ssh_entrypoint"):
+        return ["Omarchy desktop access is not installed on the execution SSH key; reinstall the workstation endpoint"]
+    warnings = []
+    if not access.get("desktop") or not access.get("wayland"):
+        warnings.append("Omarchy desktop is unavailable; log into Hyprland for desktop control")
+    if not access.get("user_bus"):
+        warnings.append("Omarchy user service bus is unavailable")
+    if not access.get("administration", {}).get("available"):
+        warnings.append("Omarchy graphical administration is unavailable; install polkit")
+    return warnings
 
 
 def resolve_remote_session(config: ServerConfig, request: LaunchRequest) -> int:

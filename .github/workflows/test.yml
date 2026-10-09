@@ -31,26 +31,10 @@ jobs:
           ./dist/hermachy --version
           ./dist/hermachy-server --version
           ./dist/hermachy-admin --help >/dev/null
+          ./dist/hermachy-exec --version
       - name: Verify release checksums and package
         if: matrix.python-version == '3.13'
         run: python scripts/build_release.py --check
-
-  desktop:
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: desktop
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24'
-          cache: npm
-          cache-dependency-path: desktop/package-lock.json
-      - run: npm ci
-      - run: npm test
-      - run: npx playwright install --with-deps chromium
-      - run: npm run test:ui
 
   hermes-compatibility:
     runs-on: ${{ matrix.os }}
@@ -77,10 +61,14 @@ jobs:
       - name: Run Hermes contract and gateway regression tests
         working-directory: ${{ runner.temp }}/hermes-compatible
         run: |
+          ulimit -n 4096
           scripts/run_tests.sh -j 4 \
             tests/hermes_cli/test_hermachy_safe_executor.py \
             tests/tools/test_hermachy_safe_executor_ssh.py \
             tests/tools/test_hermachy_surface_propagation.py \
+            tests/tools/test_ssh_environment.py \
+            tests/tools/test_ssh_bulk_upload.py \
+            tests/tools/test_terminal_scope_multiplex.py \
             tests/gateway/test_hermachy_executor_bridge.py \
             tests/hermes_cli/test_env_loader.py \
             tests/hermes_cli/test_config_env_expansion.py \
@@ -88,7 +76,7 @@ jobs:
             tests/tools/test_file_tools_container_config.py \
             tests/tools/test_lazy_deps.py \
             tests/tui_gateway/test_protocol.py \
-            tests/test_tui_gateway_server.py \
+            tests/tui_gateway/test_tui_gateway_server.py \
             tests/agent/test_prompt_builder.py
       - name: Verify installed source has not drifted
         run: python compat/hermes/prepare.py --check "$RUNNER_TEMP/hermes-compatible"

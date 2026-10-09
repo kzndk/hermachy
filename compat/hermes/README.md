@@ -6,16 +6,22 @@ fork or an unreleased upstream capability.
 
 | Component | Pinned reference |
 |---|---|
-| Hermes base | [NousResearch/hermes-agent at `8e0b9819d3be29e1628da4014c8065243402964b`](https://github.com/NousResearch/hermes-agent/commit/8e0b9819d3be29e1628da4014c8065243402964b) |
+| Hermes base (0.21.5 / v2026.9.24) | [NousResearch/hermes-agent at `f97608f178d1ffeca59860195ab7da295f7c8e5f`](https://github.com/NousResearch/hermes-agent/commit/f97608f178d1ffeca59860195ab7da295f7c8e5f) |
 | Compatibility changes | [safe-executor-v2.patch](safe-executor-v2.patch) |
 | Source and patch checksums | [manifest.json](manifest.json) |
 | Runtime Python | 3.11 (Hermes requires 3.11–3.13; Hermachy's zipapps require 3.9+) |
 | Dependency installer | uv 0.12.13, using the base commit's `uv.lock` |
 
+The runtime and bundled TUI are based on the same stable Hermes release. This
+includes the native live goal/queued-prompt display, current model catalogs, and
+upstream TUI fixes. Desktop-only features require the upstream Hermes Desktop.
+
 The patch includes the complete Hermachy safe-executor v2 implementation,
 configuration and tool routing, dedicated SSH identity and no-sync enforcement,
-TUI gateway restrictions, and regression tests. It also prevents dependency
-installation during protected Hermachy sessions. The upstream source and patch
+TUI gateway restrictions, and regression tests. It also keeps the launcher route
+authoritative under scoped terminal configuration and prevents SSH environment
+passthrough from forwarding remote profile secrets to Omarchy. Dependency
+installation is disabled during protected Hermachy sessions. The upstream source and patch
 are MIT licensed; see [LICENSE](LICENSE).
 
 ## 1. Prepare a separate source directory on the remote Hermes host
@@ -29,14 +35,13 @@ clone it on the remote host:
 
 ```bash
 mkdir -p ~/src
-git clone https://github.com/kzndk/hermachy.git ~/src/hermachy
+git clone --branch v0.4.3 --depth 1 https://github.com/kzndk/hermachy.git ~/src/hermachy
 cd ~/src/hermachy
 ```
 
-If you already have a checkout, `cd` to its root instead. For a release bundle
-that includes `compat/hermes/`, `cd` to the extracted bundle root. The original
-`v0.4.0` archive does not include this directory; use a current source checkout
-for its Hermes setup.
+If you already have a checkout, use the source at tag `v0.4.3` and `cd` to its
+root instead. The [0.4.3 release bundle](https://github.com/kzndk/hermachy/releases/tag/v0.4.3)
+includes this recipe; `cd` to the extracted bundle root when using it.
 
 Record this directory so later checks work after changing to the Hermes tree:
 
@@ -135,13 +140,19 @@ Finish by running `hermachy --doctor` on Omarchy before opening the TUI.
 The compatibility CI job prepares this source from the public upstream commit, installs locked
 dependencies, checks the real capability import, and runs the supplied Hermes
 contract tests on Linux and macOS. To reproduce the contract tests locally,
-add `--extra dev` to your dependency sync, then run from the Hermes checkout:
+add `--extra dev` to your dependency sync, then run from the Hermes checkout.
+The open-file limit applies only to this shell and its tests; the upstream gateway
+suite opens many temporary databases:
 
 ```bash
+ulimit -n 4096
 scripts/run_tests.sh -j 4 \
   tests/hermes_cli/test_hermachy_safe_executor.py \
   tests/tools/test_hermachy_safe_executor_ssh.py \
   tests/tools/test_hermachy_surface_propagation.py \
+  tests/tools/test_ssh_environment.py \
+  tests/tools/test_ssh_bulk_upload.py \
+  tests/tools/test_terminal_scope_multiplex.py \
   tests/gateway/test_hermachy_executor_bridge.py \
   tests/hermes_cli/test_env_loader.py \
   tests/hermes_cli/test_config_env_expansion.py \
@@ -149,7 +160,7 @@ scripts/run_tests.sh -j 4 \
   tests/tools/test_file_tools_container_config.py \
   tests/tools/test_lazy_deps.py \
   tests/tui_gateway/test_protocol.py \
-  tests/test_tui_gateway_server.py \
+  tests/tui_gateway/test_tui_gateway_server.py \
   tests/agent/test_prompt_builder.py
 ```
 

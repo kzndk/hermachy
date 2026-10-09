@@ -315,8 +315,9 @@ def omarchy_install(args: argparse.Namespace) -> int:
     config_dir = default_config
     artifact = Path(args.artifact).expanduser()
     gateway_artifact = artifact.parent / "hermachy-gateway"
+    executor_artifact = artifact.parent / "hermachy-exec"
     tui_dir = artifact.parent / "tui"
-    for required in (artifact, gateway_artifact, tui_dir / "entry.mjs"):
+    for required in (artifact, gateway_artifact, executor_artifact, tui_dir / "entry.mjs"):
         if not required.is_file():
             raise AdminError(f"incomplete native TUI release: missing {required}")
     if args.admin_artifact and not Path(args.admin_artifact).expanduser().is_file():
@@ -341,6 +342,8 @@ def omarchy_install(args: argparse.Namespace) -> int:
     install_executable(artifact, client_path)
     # Native TUI assets travel with the zipapps in a release directory.
     install_executable(gateway_artifact, bin_dir / "hermachy-gateway")
+    executor_path = bin_dir / "hermachy-exec"
+    install_executable(executor_artifact, executor_path)
     target_tui = Path.home() / ".local" / "share" / "hermachy" / "tui"
     target_tui.mkdir(parents=True, exist_ok=True)
     for source in tui_dir.iterdir():
@@ -355,7 +358,7 @@ def omarchy_install(args: argparse.Namespace) -> int:
     upsert_marked_block(
         ssh_dir / "authorized_keys",
         "studio-executor",
-        [f"restrict {executor_key}"],
+        [f'restrict,command="{_quote_authorized_command(executor_path)}" {executor_key}'],
         0o600,
     )
 

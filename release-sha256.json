@@ -1,9 +1,10 @@
 {
-  "hermachy": "d0d1af6348a896bae43154b833e05fa795349790e1c28b378db567a7e6224c04",
-  "hermachy-server": "e6bdeaeae5bf8f60b525864e3dc8a9d3cfa8610fe14feaa51c1eb3c1fe246497",
-  "hermachy-admin": "c59fa57a7884a459ec2fca8a6ea7922f8a5721d84d68afc833dd2c9fe3042aff",
-  "hermachy-gateway": "2fb59de3d38da66a70c52e41e3b8cf807feeaf233ae409e85388214acc7429b0",
+  "hermachy": "336b10feba08336ed01d9d5b58e8b6190da3db0b3b9b1fa2c573a5b429b44af4",
+  "hermachy-server": "43fdbed9c7feb32c17817dffb157acca028fb86d15d13da921730accf9bd1b57",
+  "hermachy-admin": "a1637675e91c7e9fef327fabc6dcac757d25a568c99215c603e89a9f59d6b315",
+  "hermachy-gateway": "f0f6240a7f8f9db33813ef739f301cb3372600992a07b4850671cbd4a2f9759d",
+  "hermachy-exec": "9b3e92e0f055128f7241665490bbb28f614ae08d47f44101f654dae9b943a1c2",
   "tui/LICENSE": "821556e6336796450ab852d375117b48a4887e71d255794fd6318d99982a5ab6",
-  "tui/PROVENANCE.json": "b3ca7f538a130afd378473654289d5838d14accf013a9e1939ce8cae362cfdb8",
-  "tui/entry.mjs": "c310a1c9219b6e6e26f8ed9247d9e91f6ed5cc8f2ffc204227e0e7dde241d237"
+  "tui/PROVENANCE.json": "728da687fc528899b52a98b85829ddd6b00a25a6f33e5acac9bace611130dde5",
+  "tui/entry.mjs": "f535c8ac5384b9c4a742e15cbfb847e30433f26541818f2738905b0290f78f6e"
 }

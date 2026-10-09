@@ -1,3 +1,63 @@
+# Hermachy 0.4.3 publication checks — 2026-10-09
+
+This release brings the repository and public downloads up to the locally
+developed 0.4.3 runtime, including the intervening 0.4.1 and 0.4.2 changes. The
+installation guides now select tag `v0.4.3`, use its complete five-executable
+archive, describe access warnings, and explain upgrading both endpoints and the
+pinned Hermes runtime. The changelog distinguishes the earlier local versions
+from published GitHub releases.
+
+Local validation:
+
+- All 104 Python tests passed, including executable smoke tests, installation,
+  compatibility preparation, connection recovery, and reproducible packaging.
+- Documentation checks passed again after the guide changes.
+- Python compilation and the bundled TUI's Node.js syntax check passed.
+- The prepared Hermes source matched the current compatibility manifest.
+- `python scripts/build_release.py --check` verified the runtime checksums and
+  built the complete 0.4.3 release archive with the updated documentation.
+
+The [test workflow](https://github.com/kzndk/hermachy/actions/workflows/test.yml)
+checks Python 3.9, 3.11, and 3.13 and prepares the pinned public Hermes source for
+compatibility tests on Linux and macOS. The live two-machine checks below were
+performed on October 5; they were not repeated for this publication update.
+
+---
+
+# Workstation access and execution reliability — 2026-10-05
+
+Hermachy 0.4.3 adds a desktop-aware workstation entry point, polkit
+administration, accurate workstation file paths, and protection against
+automatic retries after an execution exception. Both installed endpoints keep
+the pinned Hermes source and the dedicated SSH identities.
+
+Validation:
+
+- 104 Python tests passed, including byte-exact SSH stdin/stdout, exit status,
+  desktop refresh, authentication cancellation, workstation path expansion,
+  transport reconnection, replay deduplication, and deterministic releases.
+- The real Hermes terminal executed on both Linux/Omarchy and the Mac Hermes
+  host. Omarchy's Hyprland, Wayland, user bus, and command paths were available.
+- Native write/read/patch/code tools operated on an isolated Omarchy temporary
+  directory. Tilde expansion used the Omarchy user's home. The directory was
+  removed after the check.
+- Injecting an exception after a real workstation file append produced one
+  write and an uncertain-outcome result. Hermes did not repeat the command.
+- Through the dedicated execution key, `hermachy-exec --admin /usr/bin/id -u`
+  authenticated using the workstation desktop and returned UID 0. Its transient
+  service was removed afterward. No passwordless policy was installed.
+- The live persistent gateway answered its capability RPC and shut down cleanly
+  on EOF. Python compilation and release checksum verification passed.
+
+The reusable `scripts/check_runtime.py --access` check runs on the Hermes host
+with its pinned venv; it uses temporary workstation files and no model call.
+These checks do not establish reliability during every outage or OS reboot.
+Execution-SSH loss and timeouts can leave partial side effects; inspect the
+target before retrying. Running sessions must be reopened to load the new
+process-scoped runtime. Desktop settings are refreshed on each new execution.
+
+---
+
 # Documentation and installation walkthrough — 2026-09-11
 
 The setup guide now uses the actual release directory layout for both source
@@ -54,6 +114,11 @@ contain the new installer. The new source and future release bundles include
 the recipe, patch, upstream license, and setup instructions.
 
 ---
+
+# Historical release verification
+
+The records below describe past releases. The optional desktop app and its CI
+checks were removed after 0.4.0; they are not part of the current source tree.
 
 # Hermachy 0.4.0 release verification — 2026-09-09
 

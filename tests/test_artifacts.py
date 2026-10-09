@@ -20,7 +20,7 @@ class ArtifactTests(unittest.TestCase):
             self.assertTrue((output / 'tui/PROVENANCE.json').is_file())
             self.assertEqual(
                 [path.name for path in artifacts],
-                ["hermachy", "hermachy-server", "hermachy-admin", "hermachy-gateway"],
+                ["hermachy", "hermachy-server", "hermachy-admin", "hermachy-gateway", "hermachy-exec"],
             )
             for path in artifacts:
                 with self.subTest(path=path):
@@ -31,6 +31,7 @@ class ArtifactTests(unittest.TestCase):
                 (output / "hermachy", ["--version"], f"Hermachy {__version__}"),
                 (output / "hermachy-server", ["--version"], f"Hermachy server {__version__}"),
                 (output / "hermachy-admin", ["--help"], "Install and revoke Hermachy"),
+                (output / "hermachy-exec", ["--version"], f"Hermachy executor {__version__}"),
             ]
             for executable, args, expected in cases:
                 with self.subTest(executable=executable):
@@ -68,7 +69,7 @@ class ArtifactTests(unittest.TestCase):
                 hashes.append(
                     [
                         hashlib.sha256((output / name).read_bytes()).hexdigest()
-                        for name in ("hermachy", "hermachy-server", "hermachy-admin", "hermachy-gateway")
+                        for name in ("hermachy", "hermachy-server", "hermachy-admin", "hermachy-gateway", "hermachy-exec")
                     ]
                 )
         self.assertEqual(hashes[0], hashes[1])

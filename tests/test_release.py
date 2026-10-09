@@ -5,8 +5,7 @@ import tarfile
 import tempfile
 import unittest
 
-from hermachy import __version__
-from scripts.build_release import ROOT, build_release
+from scripts.build_release import build_release
 
 
 class ReleaseTests(unittest.TestCase):
@@ -38,10 +37,3 @@ class ReleaseTests(unittest.TestCase):
             manifest.write_text('{}')
             with self.assertRaisesRegex(ValueError, "checksums are stale"):
                 build_release(root / "second", manifest, check=True)
-
-    def test_desktop_and_cli_release_versions_match(self):
-        package = json.loads((ROOT / "desktop/package.json").read_text())
-        lock = json.loads((ROOT / "desktop/package-lock.json").read_text())
-        self.assertEqual(package["version"], __version__)
-        self.assertEqual(lock["version"], __version__)
-        self.assertEqual(lock["packages"][""]["version"], __version__)

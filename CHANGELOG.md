@@ -1,6 +1,49 @@
 # Changelog
 
-## Unreleased
+## 0.4.3 — 2026-10-09
+
+This release includes the changes recorded under 0.4.1 and 0.4.2 below; those
+versions were developed locally and were not published as GitHub releases.
+
+- Add `hermachy-exec` as the workstation SSH entry point. Refresh local desktop
+  session settings and command paths on each execution, and prevent shell
+  snapshots from restoring stale display settings after a compositor restart.
+- Add explicit administration through the desktop polkit dialog, preserving
+  command arguments and exit status and cleaning up pending authorization when
+  the caller cancels. No passwordless policy is installed.
+- Extend diagnostics and startup warnings to distinguish working SSH from
+  available desktop, Wayland, user service bus, and administration access.
+- Include the workstation entry point in reproducible builds and installation.
+- Prevent Hermes's generic retry loop from repeating a workstation command
+  after an execution exception. Report SSH loss and timeouts as uncertain
+  outcomes requiring inspection before retrying. Keep sudo password handling
+  out of the remote process.
+- Resolve native file-tool paths on the workstation. The Mac Hermes host's
+  `/tmp` symlink and home directory must not rewrite Linux file destinations.
+- Update the download, installation, diagnostics, and upgrade guides for the
+  complete five-executable release and its pinned Hermes runtime.
+
+### Upgrade to 0.4.3
+
+Close active clients and upgrade both Hermachy endpoints and the pinned Hermes
+runtime together using the [upgrade guide](docs/OMARCHY_REMOTE_HERMES.md#14-upgrade).
+Re-run the Omarchy installation phase so the execution key uses `hermachy-exec`,
+then run `hermachy --doctor` before reopening sessions. The optional
+`hermachy-app` interface has been removed; use the native TUI with `hermachy`.
+
+## 0.4.2 — 2026-09-30
+
+- Align the bundled native TUI, CLI parser, and protected remote runtime with
+  Hermes 0.21.5 (`v2026.9.24`, `f97608f178`). This includes the live goal and
+  queued-prompt display and the release's native TUI improvements.
+- Rebase safe-executor v2 onto the reorganized gateway and tool modules. Preserve
+  the dedicated identity, no state synchronization, pinned workspace, and
+  execution routing under the new scoped terminal configuration.
+- Disable SSH environment passthrough in protected sessions so remote profile
+  credentials stay on the Hermes host. Update the keepalive wrapper for the new
+  SSH method signature and the standalone parser's config-path help.
+- Remove the optional `hermachy-app` desktop interface, its installer, Python
+  bridge, and desktop tests and CI job. Hermachy retains the native Hermes TUI.
 
 ## 0.4.1 — 2026-09-12
 
@@ -39,8 +82,8 @@ includes an optional desktop app for Omarchy.
 Upgrade both Hermachy endpoints together. Close active clients first, replace the
 four executables and bundled TUI assets using the
 [setup and upgrade guide](docs/OMARCHY_REMOTE_HERMES.md), then run
-`hermachy --doctor`. Install or update the desktop app separately using
-the [desktop guide](https://github.com/kzndk/hermachy/blob/v0.4.0/desktop/README.md).
+`hermachy --doctor`. The optional desktop installer was included in the 0.4.0
+source release and has since been removed from the repository.
 
 This remains a public pre-alpha requiring a tested Hermes build with
 safe-executor capability v2. Stock Hermes builds without that contract are

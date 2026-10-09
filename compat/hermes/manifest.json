@@ -1,9 +1,10 @@
 {
   "repository": "https://github.com/NousResearch/hermes-agent.git",
-  "revision": "8e0b9819d3be29e1628da4014c8065243402964b",
-  "patch_sha256": "80031638f852623db1be1c7360b1e02d3b1cf4a648b3c8f4f169c173e2a14c62",
-  "patched_tree": "2630be4d5865f5fd785597feff88618f390c57bb",
+  "revision": "f97608f178d1ffeca59860195ab7da295f7c8e5f",
+  "patch_sha256": "a8ef19f455f9051c6883a2022e5fffe2df6ef9eaeaf1f99a72f49703a7e6be70",
+  "patched_tree": "919945fe2c63a3f5b14a89283d921ef2657110df",
   "capability": "2",
   "python": "3.11",
-  "uv": "0.12.13"
+  "uv": "0.12.13",
+  "release": "v2026.9.24"
 }

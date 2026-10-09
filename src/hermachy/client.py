@@ -123,8 +123,11 @@ def build_ssh_argv(config: ClientConfig, request: LaunchRequest) -> list[str]:
 
 def parser() -> argparse.ArgumentParser:
     # Vendored verbatim from the same Hermes revision as the native UI bundle.
-    from .hermes_parser import build_top_level_parser
-    result, _, chat = build_top_level_parser()
+    from . import hermes_parser
+    # Upstream now resolves its help text through hermes_constants. The local
+    # zipapp has no Hermes installation; configuration belongs to the host.
+    hermes_parser._cfg_path = lambda: "the remote default profile's config.yaml"
+    result, _, chat = hermes_parser.build_top_level_parser()
     result.prog = "hermachy"
     result.description = "Local Hermes TUI · persistent connection · Omarchy and Hermes execution"
     result.epilog = "Run hermachy in a project, or hermachy --in DIR. Use /help inside the native TUI."
@@ -286,6 +289,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.version:
             print(f"Hermachy {__version__} · local Hermes TUI / remote agent")
             return 0
+        if getattr(args, "output_format", "text") != "text":
+            raise ClientError("--format is a single-query CLI option; hermachy runs the native TUI")
         for attr in ("cli", "tui_dev", "oneshot", "oneshot_exit", "usage_file", "run_budget", "source"):
             if getattr(args, attr, None):
                 raise ClientError(f"{attr.replace('_', '-')} is a non-TUI/development option; hermachy runs the native TUI")
@@ -318,6 +323,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         report = check_remote(config, cwd)
         if report.get("persistent_gateway") != 1 or report.get("execution_targets") != ["omarchy", "hermes"]:
             raise ClientError("remote Hermachy server needs upgrading for persistent connections and dual execution")
+        for warning in report.get("warnings", []):
+            print(f"hermachy: {warning}", file=sys.stderr)
         command, env = prepare_local_ui(args, config, request)
         return subprocess.run(command, cwd=cwd, env=env, check=False).returncode
     except (ClientError, ProtocolError, OSError, subprocess.SubprocessError) as exc:

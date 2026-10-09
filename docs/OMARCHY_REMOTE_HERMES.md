@@ -1,6 +1,6 @@
 # Configure Omarchy with a remote Hermes Agent
 
-This guide connects an Omarchy workstation to a Hermes Agent running on another machine. You start `hermachy` in an Omarchy project directory and interact with the native Hermes TUI rendered locally. Native terminal, file, and code tools run on Omarchy; `terminal(target="hermes")` also lets the agent choose the remote Hermes host for commands, CLI tools, files and code. See [connection recovery and execution targets](../README.md#connection-recovery-and-execution-targets) for routing and recovery behavior in 0.4.0.
+This guide installs Hermachy 0.4.3 and connects an Omarchy workstation to a Hermes Agent running on another machine. You start `hermachy` in an Omarchy project directory and interact with the native Hermes TUI rendered locally. Native terminal, file, and code tools run on Omarchy; `terminal(target="hermes")` also lets the agent choose the remote Hermes host for commands, CLI tools, files and code. See [connection recovery and execution targets](../README.md#connection-recovery-and-execution-targets) for routing and recovery behavior.
 
 ## 1. Understand the boundary
 
@@ -64,6 +64,11 @@ Requirements:
 - Tailscale online in the same tailnet as the remote host
 - an existing absolute project directory, such as `/home/alex/code/project`
 - no passwordless sudo is required or added
+
+Desktop control requires an active Hyprland session and its user service bus.
+Graphical administration additionally requires `pkexec` and the desktop's polkit
+authentication agent. Headless terminal and file operations remain available
+without desktop access; diagnostics report these capabilities separately.
 
 ### Remote Hermes host
 
@@ -195,7 +200,7 @@ If the local public host-key file is unavailable, ask the machine administrator 
 ## 5. Prepare the Hermachy release directory
 
 Choose one of the following methods. Later steps run from a directory containing
-`hermachy`, `hermachy-server`, `hermachy-admin`, `hermachy-gateway`, and `tui/`.
+`hermachy`, `hermachy-server`, `hermachy-admin`, `hermachy-gateway`, `hermachy-exec`, and `tui/`.
 
 ### Build from source
 
@@ -210,15 +215,15 @@ python3 scripts/build_zipapps.py
 cd dist
 ```
 
-The four executables are standalone Python zipapps requiring Python 3.9+.
+The five executables are standalone Python zipapps requiring Python 3.9+.
 The renderer in `tui/` requires Node.js on Omarchy. The builder verifies renderer
 and parser provenance. If you build on Omarchy instead, transfer this complete
 `dist/` directory to the remote host and enter the transferred directory there.
 
 ### Use a release archive
 
-Download `hermachy-0.4.0.tar.gz` and its matching `SHA256SUMS` from the
-[release page](https://github.com/kzndk/hermachy/releases/tag/v0.4.0) into the same
+Download `hermachy-0.4.3.tar.gz` and its matching `SHA256SUMS` from the
+[release page](https://github.com/kzndk/hermachy/releases/tag/v0.4.3) into the same
 directory on the remote host. From that download directory, verify the archive:
 
 ```bash
@@ -230,14 +235,14 @@ After verification succeeds, extract into a new directory and enter it:
 
 ```bash
 mkdir hermachy-release
-tar -xzf hermachy-0.4.0.tar.gz -C hermachy-release
+tar -xzf hermachy-0.4.3.tar.gz -C hermachy-release
 cd hermachy-release
 ```
 
 The release archive puts the executables at its root; it has no `dist/` directory.
-The original `v0.4.0` archive also predates `compat/hermes/`; use the current
-source checkout for the Hermes setup in Step 2. Bundles built from the current
-source include the compatibility installer and these docs.
+The 0.4.3 archive includes all five executables, `tui/`, the `compat/hermes/`
+installer and patch for Step 2, and these docs. Keep those files together while
+completing the installation.
 
 ## 6. Phase A — prepare the remote host
 
@@ -263,6 +268,7 @@ Transfer the complete client release and public handoff key to Omarchy, preservi
 hermachy
 hermachy-admin
 hermachy-gateway
+hermachy-exec
 tui/entry.mjs
 tui/PROVENANCE.json
 tui/LICENSE
@@ -272,7 +278,7 @@ studio-executor.pub
 Use an authenticated file transfer. For example, prepare a bootstrap archive on the remote host:
 
 ```bash
-tar -czf hermachy-bootstrap.tar.gz hermachy hermachy-admin hermachy-gateway tui \
+tar -czf hermachy-bootstrap.tar.gz hermachy hermachy-admin hermachy-gateway hermachy-exec tui \
   -C handoff studio-executor.pub
 ```
 
@@ -305,6 +311,7 @@ The command installs:
 ~/.local/bin/hermachy
 ~/.local/bin/hermachy-admin
 ~/.local/bin/hermachy-gateway
+~/.local/bin/hermachy-exec
 ~/.local/share/hermachy/tui/
 ~/.config/hermachy/client.json
 ~/.ssh/hermachy_to_morpheus          # client private key; stays on Omarchy
@@ -313,7 +320,7 @@ The command installs:
 
 The `hermachy_to_morpheus` filename is a legacy default and works with any remote Hermes host.
 
-It also places the remote execution public key in a marked, restricted block in `~/.ssh/authorized_keys`. Existing unrelated entries are preserved.
+It also places the remote execution public key in a marked, restricted block in `~/.ssh/authorized_keys`, with `hermachy-exec` as its forced command. Existing unrelated entries are preserved. The entry point supplies the current workstation desktop session on each command. Re-run this phase when upgrading from versions before 0.4.3.
 
 Ensure the installed commands are on `PATH`:
 
@@ -409,13 +416,16 @@ A successful report has `"status": "ok"` and identifies:
 - the remote host under `studio`;
 - the authoritative Hermes profile and version;
 - Omarchy under `executor`;
-- the expected Omarchy username, Linux system, and current project directory.
+- the expected Omarchy username, Linux system, and current project directory;
+- desktop, Wayland, user service bus, execution entry point, and administration
+  availability under `executor.access`, with any limitations under `warnings`.
 
 Example shape:
 
 ```json
 {
   "status": "ok",
+  "version": "0.4.3",
   "studio": {
     "hostname": "remote-hermes-host",
     "profile": "default"
@@ -424,12 +434,30 @@ Example shape:
     "hostname": "omarchy-workstation",
     "user": "alex",
     "cwd": "/home/alex/code/project",
-    "system": "Linux"
-  }
+    "system": "Linux",
+    "access": {
+      "version": "1",
+      "ssh_entrypoint": true,
+      "desktop": true,
+      "wayland": true,
+      "user_bus": true,
+      "administration": {
+        "available": true,
+        "authentication": "desktop"
+      }
+    }
+  },
+  "warnings": []
 }
 ```
 
 Do not continue if the host, user, directory, or operating system is wrong.
+
+`"status": "ok"` confirms the transport and execution identity. A desktop warning
+still permits headless work. If `ssh_entrypoint` is missing or false, repeat
+Phase B with the 0.4.3 artifacts. Administration availability checks the
+authentication path; each privileged command still requires authorization
+through the workstation's desktop. See [desktop and system access](../README.md#desktop-and-system-access).
 
 ## 10. Use Hermachy
 
@@ -562,11 +590,27 @@ Only then treat access as stopped. For permanent removal, delete the correspondi
 
 ## 14. Upgrade
 
-Build the new Hermachy version from a verified source revision. Re-run the relevant install phase with the new artifacts; managed files and marked blocks are updated idempotently. Run `hermachy --doctor` again before opening a session.
+Upgrade both endpoints and the pinned Hermes runtime as one set:
+
+1. Close active Hermachy clients so their gateways stop and reopened sessions
+   load the new runtime.
+2. Build from tag `v0.4.3` or verify and extract its release archive using Step 5.
+   Keep all five executables and their matching `tui/` assets together.
+3. Prepare and verify the matching Hermes runtime in a new directory using the
+   [pinned runtime upgrade procedure](../compat/hermes/README.md#validation-and-upgrades).
+   Keep the previous runtime directory for rollback.
+4. Transfer the client bundle and existing public handoff key as in Phase A,
+   then re-run Phase B on Omarchy. This installs `hermachy-exec` and updates the
+   execution key's forced command; copying only the old executables is insufficient.
+5. Re-run Phase C on the remote host using the new server artifact and verified
+   Hermes source root. Managed files and marked key blocks update idempotently.
+6. Run `hermachy --doctor` from an Omarchy project directory, check the identities
+   and access warnings, then open a new session or resume a saved conversation.
 
 Treat Hermachy, its safe-executor Hermes version, and SSH policy as one compatibility set. Do not unattended-auto-update one side of this security boundary.
 
-For a Hermes compatibility change, follow the [pinned runtime upgrade procedure](../compat/hermes/README.md#validation-and-upgrades): prepare a new directory, verify it, close active clients, and rerun Phase C with the new source root. Keep the previous runtime directory for rollback.
+The optional `hermachy-app` desktop interface was removed after 0.4.0. Launch
+the native terminal interface with `hermachy` after upgrading.
 
 ## Security reference
 
