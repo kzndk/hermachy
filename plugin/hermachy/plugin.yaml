@@ -1,0 +1,6 @@
+name: hermachy
+version: 0.6.0
+description: "Hermachy: run bound default-profile sessions on the user's Omarchy workstation over a dedicated, no-sync SSH route"
+author: "KZN"
+provides_tools:
+  - hermes_host

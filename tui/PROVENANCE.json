@@ -1,15 +1,17 @@
 {
-  "hermes_revision": "d923a5eb487a17c0a68801bba9ef0f56c81040a8",
+  "hermes_revision": "3b421578588243f920886e6fe79a6faa87ea026e",
   "upstream": "https://github.com/NousResearch/hermes-agent",
   "assets": {
-    "entry.mjs": "e1d6fb851fb83058f999710373c65f81782e323e1e86788b73ff24aa350d7c80",
-    "hermes_parser.py": "75fa3070d9cdcbeaa3fc1424e9c3dba06a403b9d43c74aaccc3b82829edf366c",
-    "activity-emojis.patch": "1a83d47a1c0029baf661a224962e2283f5cf82f8976ca182ba236f4096aef4bc",
-    "omarchy-theme.patch": "29d1d2aa6ab6567fe28e4512de41ff562a042057e2c7540c90b04da56537e89d"
+    "entry.mjs": "df4fd7b7b30fa9d4cc7e41b1416a3f2692d175f7c615c576f88b52973aa3263f",
+    "hermes_parser.py": "5b3f30a1e48799d563fdceec337c31c49f395242b80742ef15f6799e47e83cb3",
+    "activity-emojis.patch": "f8664ae0e315497e2598799b64f46a7054a81e4ccd5ed944c29aa122c872099b",
+    "omarchy-theme.patch": "80c23d90a4c992869ee448bd53f36431726ca88421aaa274c43dc9f755ba9077",
+    "scripts/clipboard_image.py": "37e7f98694c5cb197c929b22f967ab28a2d262c961bb6048ea8796d96b8654ef"
   },
-  "hermes_release": "v0.22.2",
+  "hermes_release": "v0.23.1",
   "renderer_patches": [
     "activity-emojis.patch",
     "omarchy-theme.patch"
-  ]
+  ],
+  "build": "pnpm 12.15.0 (pm/lock.json): pnpm install --frozen-lockfile --filter 'hermes-tui...' && pnpm run build in ui-tui"
 }

@@ -15,7 +15,7 @@ import sys
 from typing import Any, Sequence
 
 from . import __version__
-from .protocol import LaunchRequest, ProtocolError, encode_request
+from .protocol import FORCED_COMMAND, LaunchRequest, ProtocolError, encode_request
 
 DEFAULT_CONFIG_PATH = Path("~/.config/hermachy/client.json")
 _REQUIRED_CONFIG_FIELDS = frozenset({"studio_host", "studio_user", "identity_file"})
@@ -91,7 +91,7 @@ def build_ssh_argv(config: ClientConfig, request: LaunchRequest) -> list[str]:
 
     return [
         "ssh",
-        "-T" if request.action in {"gateway", "resolve", "doctor"} else "-tt",
+        "-T",
         "-F",
         "/dev/null",
         "-o",
@@ -117,7 +117,7 @@ def build_ssh_argv(config: ClientConfig, request: LaunchRequest) -> list[str]:
         "-p",
         str(config.studio_port),
         f"{config.studio_user}@{config.studio_host}",
-        f"hermachy-v1 {encode_request(request)}",
+        f"{FORCED_COMMAND} {encode_request(request)}",
     ]
 
 
@@ -153,7 +153,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 
 
 def build_request(args: argparse.Namespace, current_cwd: Path) -> LaunchRequest:
-    """Turn parsed local CLI options into a validated launch request."""
+    """Turn parsed local CLI options into a validated doctor request for this workspace."""
 
     if args.cwd:
         cwd_path = Path(args.cwd).expanduser().resolve()
@@ -161,43 +161,39 @@ def build_request(args: argparse.Namespace, current_cwd: Path) -> LaunchRequest:
             raise ClientError(f"working directory does not exist or is not a directory: {cwd_path}")
     else:
         cwd_path = current_cwd.resolve()
+    return LaunchRequest(str(cwd_path), "doctor")
 
-    if args.doctor:
-        return LaunchRequest(str(cwd_path), "doctor")
-    if args.resume is not None:
-        return LaunchRequest(str(cwd_path), "resume", args.resume)
-    if args.continue_session is not None:
-        session = args.continue_session or None
-        return LaunchRequest(str(cwd_path), "continue", session)
-    return LaunchRequest(str(cwd_path), "new")
+
+BYPASS_OPTIONS = ("safe_mode", "ignore_user_config")
 
 
 def build_launch_env(args: argparse.Namespace) -> dict[str, str]:
+    """Launch options the v0.23+ TUI reads and sends with ``session.create``."""
+    for attr in BYPASS_OPTIONS:
+        if getattr(args, attr, False):
+            raise ClientError(f"--{attr.replace('_', '-')} is unavailable in Hermachy: it skips the "
+                              "workstation route")
     env: dict[str, str] = {}
     for attr, keys in {
-        "model": ("HERMES_MODEL", "HERMES_INFERENCE_MODEL"),
-        "provider": ("HERMES_TUI_PROVIDER", "HERMES_INFERENCE_PROVIDER"),
+        "model": ("HERMES_MODEL",),
+        "provider": ("HERMES_TUI_PROVIDER",),
         "toolsets": ("HERMES_TUI_TOOLSETS",),
         "max_turns": ("HERMES_TUI_MAX_TURNS",),
     }.items():
         value = getattr(args, attr, None)
         if value is not None:
             env.update({key: str(value) for key in keys})
-    if args.skills:
+    if getattr(args, "skills", None):
         env["HERMES_TUI_SKILLS"] = ",".join(args.skills)
     for attr, key in {
         "checkpoints": "HERMES_TUI_CHECKPOINTS",
         "pass_session_id": "HERMES_TUI_PASS_SESSION_ID",
         "accept_hooks": "HERMES_ACCEPT_HOOKS",
         "yolo": "HERMES_YOLO_MODE",
-        "ignore_user_config": "HERMES_IGNORE_USER_CONFIG",
         "ignore_rules": "HERMES_IGNORE_RULES",
-        "safe_mode": "HERMES_SAFE_MODE",
     }.items():
         if getattr(args, attr, False):
             env[key] = "1"
-    if args.safe_mode:
-        env.update(HERMES_IGNORE_USER_CONFIG="1", HERMES_IGNORE_RULES="1")
     if getattr(args, "verbose", False):
         env["HERMES_TUI_TOOL_PROGRESS"] = "verbose"
     elif getattr(args, "quiet", False):
@@ -240,38 +236,33 @@ def check_remote(config: ClientConfig, cwd: str) -> dict[str, Any]:
     return report
 
 
-def ui_paths() -> tuple[Path, Path]:
+def ui_entry() -> Path:
     root = Path(os.environ.get("HERMACHY_UI_DIR", "~/.local/share/hermachy/tui")).expanduser()
-    gateway = Path(os.environ.get("HERMACHY_GATEWAY_COMMAND", "~/.local/bin/hermachy-gateway")).expanduser()
-    return root / "entry.mjs", gateway
+    return root / "entry.mjs"
 
 
-def prepare_local_ui(args: argparse.Namespace, config: ClientConfig,
-                     request: LaunchRequest) -> tuple[list[str], dict[str, str]]:
-    entry, gateway = ui_paths()
+def prepare_local_ui(args: argparse.Namespace, config: ClientConfig, cwd: str,
+                     gateway_url: str) -> tuple[list[str], dict[str, str]]:
+    entry = ui_entry()
     node = shutil.which("node")
-    if not node or not entry.is_file() or not gateway.is_file():
-        raise ClientError("local Hermes UI is missing; install the TUI bundle, Node.js, and hermachy-gateway")
-    # Hermachy owns these launch settings. Do not inherit an unrelated Hermes
-    # profile, gateway URL, or a stale resume flag from the user's shell.
-    env = {k: v for k, v in os.environ.items()
-           if not k.startswith(("HERMES_", "HERMACHY_REQUEST", "HERMACHY_REASONING"))}
+    if not node or not entry.is_file():
+        raise ClientError("local Hermes UI is missing; install the Hermachy TUI bundle and Node.js")
+    # Hermachy owns these launch settings. Do not inherit an unrelated Hermes profile,
+    # gateway URL, or a stale resume flag from the user's shell.
+    env = {k: v for k, v in os.environ.items() if not k.startswith(("HERMES_", "HERMACHY_"))}
     state = Path("~/.local/state/hermachy").expanduser()
     state.mkdir(parents=True, exist_ok=True, mode=0o700)
-    env.update(HERMES_HOME=str(state), HERMES_CWD=request.cwd,
-               HERMES_PYTHON=str(gateway), HERMES_PYTHON_SRC_ROOT=str(entry.parent),
-               NODE_ENV="production", HERMACHY_REQUEST=encode_request(request),
-               HERMACHY_CLIENT_CONFIG=str(_config_path().resolve()))
-    env["HERMES_TUI_NATIVE"] = "1" if args.tui_native else "0"
-    reasoning = getattr(args, "reasoning", None)
-    if reasoning:
-        if reasoning not in {"none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"}:
-            raise ClientError("invalid reasoning effort")
-        env["HERMACHY_REASONING"] = reasoning
+    env.update(build_launch_env(args))
+    env.update(HERMES_HOME=str(state), HERMES_CWD=cwd, HERMES_TUI_GATEWAY_URL=gateway_url,
+               HERMES_PYTHON=sys.executable, HERMES_PYTHON_SRC_ROOT=str(entry.parent),
+               HERMES_TUI_STARTUP_TIMEOUT_MS="30000", NODE_ENV="production",
+               # The bundled renderer's Omarchy theme patch follows the workstation palette only
+               # under Hermachy; this marker (0.5.x's request variable) switches it on.
+               HERMACHY_REQUEST="attach")
+    env["HERMES_TUI_NATIVE"] = "1" if getattr(args, "tui_native", False) else "0"
     if args.resume or args.continue_last is not None:
         selector = args.resume or (args.continue_last if isinstance(args.continue_last, str) else None)
-        env["HERMES_TUI_RESUME"] = resolve_session(
-            config, LaunchRequest(request.cwd, "resolve", selector))
+        env["HERMES_TUI_RESUME"] = resolve_session(config, LaunchRequest(cwd, "resolve", selector))
     query = getattr(args, "query", None)
     query_file = getattr(args, "query_file", None)
     if query_file:
@@ -280,9 +271,15 @@ def prepare_local_ui(args: argparse.Namespace, config: ClientConfig,
         env["HERMES_TUI_QUERY"] = query
     image = getattr(args, "image", None)
     if image:
-        image_path = Path(image).expanduser().resolve(strict=True)
-        env["HERMES_TUI_IMAGE"] = str(image_path)
+        env["HERMES_TUI_IMAGE"] = str(Path(image).expanduser().resolve(strict=True))
     return [node, "--expose-gc", str(entry)], env
+
+
+def reasoning_effort(args: argparse.Namespace) -> str | None:
+    reasoning = getattr(args, "reasoning", None)
+    if reasoning and reasoning not in {"none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"}:
+        raise ClientError("invalid reasoning effort")
+    return reasoning or None
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -304,13 +301,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             raise ClientError(f"SSH identity not found: {config.identity_file}")
         request = build_request(args, Path.cwd())
         if args.doctor:
-            entry, gateway = ui_paths()
-            if not shutil.which("node") or not entry.is_file() or not gateway.is_file():
+            if not shutil.which("node") or not ui_entry().is_file():
                 raise ClientError("local Hermes TUI runtime is missing")
             report = check_remote(config, request.cwd)
             report["client"] = {"hostname": socket.gethostname(), "system": sys.platform,
-                                "renderer": "local native Hermes TUI", "bundle": str(entry)}
-            report["transport"] = "SSH JSON-RPC, no remote PTY"
+                                "renderer": "local native Hermes TUI", "bundle": str(ui_entry())}
             print(json.dumps(report, sort_keys=True))
             return 0
         cwd = request.cwd
@@ -321,15 +316,21 @@ def main(argv: Sequence[str] | None = None) -> int:
             subprocess.run(["git", "-C", root, "worktree", "add", "--detach", str(target)], check=True)
             cwd = str(target)
             print(f"Local worktree: {cwd}", file=sys.stderr)
-        request = LaunchRequest(cwd, "gateway", env=build_launch_env(args),
-                                connection=uuid.uuid4().hex)
+        build_launch_env(args)  # refuse bypass options before any remote work
         report = check_remote(config, cwd)
-        if report.get("persistent_gateway") != 1 or report.get("execution_targets") != ["omarchy", "hermes"]:
-            raise ClientError("remote Hermachy server needs upgrading for persistent connections and dual execution")
+        if report.get("version") != __version__ or report.get("transport") != "shared-gateway-v1":
+            raise ClientError(f"the Hermes host runs Hermachy {report.get('version', 'unknown')}; "
+                              f"this client is {__version__}. Upgrade both endpoints together")
         for warning in report.get("warnings", []):
             print(f"hermachy: {warning}", file=sys.stderr)
-        command, env = prepare_local_ui(args, config, request)
-        return subprocess.run(command, cwd=cwd, env=env, check=False).returncode
+        from .relay import Relay
+        relay = Relay(lambda launch: build_ssh_argv(config, launch), cwd, uuid.uuid4().hex,
+                      reasoning_effort(args)).start()
+        try:
+            command, env = prepare_local_ui(args, config, cwd, relay.url)
+            return subprocess.run(command, cwd=cwd, env=env, check=False).returncode
+        finally:
+            relay.close()
     except (ClientError, ProtocolError, OSError, subprocess.SubprocessError) as exc:
         print(f"hermachy: {exc}", file=sys.stderr)
         return 2

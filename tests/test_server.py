@@ -2,176 +2,73 @@ import io
 import json
 import os
 from pathlib import Path
-import stat
 import subprocess
 import tempfile
 import unittest
 from unittest import mock
 
-from hermachy.protocol import LaunchRequest, encode_request
+from hermachy import __version__
+from hermachy.bridge import Bindings
+from hermachy.protocol import FORCED_COMMAND, LaunchRequest, encode_request
 from hermachy.server import (
-    ServerConfig,
-    ServerError,
-    build_executor_ssh_argv,
-    build_hermes_argv,
-    build_hermes_env,
-    load_server_config,
-    main,
-    run_doctor,
-    verify_safe_executor_capability,
-    SAFE_EXECUTOR_CAPABILITY_VERSION,
+    ServerConfig, ServerError, build_executor_ssh_argv, load_server_config, main, plugin_enabled,
+    resolve_session, run_doctor,
 )
 
 
 class ServerTests(unittest.TestCase):
-    def make_config(self, root: Path, mode: int = 0o600) -> tuple[Path, ServerConfig]:
-        key = root / "id_ed25519"
-        key.write_text("private", encoding="utf-8")
-        key.chmod(0o600)
-        source_root = root / "hermes-agent"
-        runtime_python = source_root / "venv" / "bin" / "python"
-        runtime_python.parent.mkdir(parents=True)
-        runtime_python.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
-        runtime_python.chmod(0o700)
-        hermes = runtime_python.parent / "hermes"
-        hermes.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
-        hermes.chmod(0o700)
-        payload = {
-            "hermes_command": str(hermes),
-            "hermes_source_root": str(source_root),
-            "executor_host": "omarchy.example-tailnet.ts.net",
-            "executor_user": "omarchy-user",
-            "executor_identity_file": str(key),
-            "executor_port": 22,
-        }
-        path = root / "server.json"
-        path.write_text(json.dumps(payload), encoding="utf-8")
-        path.chmod(mode)
-        return path, ServerConfig(
-            hermes, payload["executor_host"], payload["executor_user"], key, 22, source_root
-        )
+    def setUp(self) -> None:
+        self.temp = Path(tempfile.mkdtemp(prefix="hermachy-server-"))
+        self.hermes = self.temp / "hermes"
+        self.hermes.write_text("#!/bin/sh\necho 'Hermes Agent v0.23.1'\n")
+        self.hermes.chmod(0o755)
+        self.key = self.temp / "key"
+        self.key.write_text("k")
+        self.key.chmod(0o600)
+        self.home = self.temp / "hermes-home"
+        (self.home / "plugins" / "hermachy").mkdir(parents=True)
+        (self.home / "plugins" / "hermachy" / "plugin.yaml").write_text(f"name: hermachy\nversion: {__version__}\n")
+        (self.home / "config.yaml").write_text("terminal:\n  backend: local\nplugins:\n  enabled:\n    - hermachy\n")
+        self.path = self.temp / "server.json"
+        self.write({})
+
+    def write(self, overrides: dict, mode: int = 0o600) -> None:
+        payload = {"hermes_command": str(self.hermes), "hermes_home": str(self.home),
+                   "executor_host": "omarchy", "executor_user": "omarchy-user",
+                   "executor_identity_file": str(self.key), "executor_port": 22}
+        payload.update(overrides)
+        payload = {k: v for k, v in payload.items() if v is not None}
+        self.path.write_text(json.dumps(payload))
+        self.path.chmod(mode)
 
     def test_loads_private_config(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            path, expected = self.make_config(Path(directory))
-            self.assertEqual(load_server_config(path), expected)
-
-    def test_rejects_command_not_bound_to_probed_hermes_runtime(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            path, _ = self.make_config(root)
-            unrelated = root / "unrelated-hermes"
-            unrelated.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
-            unrelated.chmod(0o700)
-            payload = json.loads(path.read_text(encoding="utf-8"))
-            payload["hermes_command"] = str(unrelated)
-            path.write_text(json.dumps(payload), encoding="utf-8")
-
-            with self.assertRaisesRegex(ServerError, "same Hermes runtime"):
-                load_server_config(path)
+        config = load_server_config(self.path)
+        self.assertEqual(config.hermes_command, self.hermes)
+        self.assertEqual(config.hermes_home, self.home)
+        self.assertEqual(config.executor_port, 22)
 
     def test_rejects_config_with_group_or_other_permissions(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            path, _ = self.make_config(Path(directory), mode=0o644)
-            with self.assertRaisesRegex(ServerError, "permissions"):
-                load_server_config(path)
+        self.write({}, mode=0o640)
+        with self.assertRaises(ServerError):
+            load_server_config(self.path)
 
-    def test_rejects_missing_unknown_and_invalid_config(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            path, _ = self.make_config(root)
-            payload = json.loads(path.read_text())
-            cases = [
-                {key: value for key, value in payload.items() if key != "executor_user"},
-                {**payload, "extra": True},
-                {**payload, "executor_host": "bad host"},
-                {**payload, "executor_port": 0},
-                {**payload, "hermes_command": "relative"},
-            ]
-            for index, candidate in enumerate(cases):
-                candidate_path = root / f"bad-{index}.json"
-                candidate_path.write_text(json.dumps(candidate), encoding="utf-8")
-                candidate_path.chmod(0o600)
-                with self.subTest(candidate=candidate), self.assertRaises(ServerError):
-                    load_server_config(candidate_path)
+    def test_rejects_missing_unknown_invalid_and_0_5_config(self) -> None:
+        for overrides in ({"hermes_command": None}, {"extra": 1}, {"executor_port": 0},
+                          {"executor_host": "two words"}, {"hermes_command": "relative"},
+                          {"hermes_home": str(self.temp / "missing")},
+                          {"hermes_source_root": "/opt/hermes"}):
+            with self.subTest(overrides=overrides):
+                self.write(overrides)
+                with self.assertRaises(ServerError):
+                    load_server_config(self.path)
 
-    def test_builds_process_scoped_hermes_environment(self) -> None:
-        config = ServerConfig(
-            Path("/opt/hermes"), "omarchy.tail", "omarchy-user", Path("/keys/executor"), 2222
-        )
-        env = build_hermes_env(
-            config,
-            LaunchRequest("/home/omarchy-user/project"),
-            base_env={"HOME": "/Users/studio-user", "PYTHONPATH": "bad", "PYTHONHOME": "bad"},
-        )
-        self.assertEqual(env["HOME"], "/Users/studio-user")
-        self.assertEqual(env["HERMES_TUI"], "1")
-        self.assertEqual(env["TERMINAL_ENV"], "ssh")
-        self.assertEqual(env["TERMINAL_CWD"], "/home/omarchy-user/project")
-        self.assertEqual(env["TERMINAL_SSH_HOST"], "omarchy.tail")
-        self.assertEqual(env["TERMINAL_SSH_USER"], "omarchy-user")
-        self.assertEqual(env["TERMINAL_SSH_PORT"], "2222")
-        self.assertEqual(env["TERMINAL_SSH_KEY"], "/keys/executor")
-        self.assertEqual(env["TERMINAL_SSH_PERSISTENT"], "true")
-        self.assertEqual(env["TERMINAL_SYNC_REMOTE_STATE"], "false")
-        self.assertEqual(env["HERMACHY_REQUIRE_SAFE_EXECUTOR"], "1")
-        self.assertEqual(env["PYTHONPATH"], "/opt/hermes-agent")
-        self.assertNotIn("PYTHONHOME", env)
-
-    def test_builds_hermes_argv_for_each_action(self) -> None:
-        config = ServerConfig(Path("/h"), "host", "user", Path("/key"))
-        cases = [
-            (
-                LaunchRequest("/p"),
-                [
-                    "/opt/hermes-agent/venv/bin/python",
-                    "-c",
-                    mock.ANY,
-                    "--profile=default",
-                    "--tui",
-                    "--no-restore-cwd",
-                ],
-            ),
-            (
-                LaunchRequest("/p", "continue"),
-                [
-                    "/opt/hermes-agent/venv/bin/python",
-                    "-c",
-                    mock.ANY,
-                    "--profile=default",
-                    "--tui",
-                    "--no-restore-cwd",
-                    "--continue",
-                ],
-            ),
-            (
-                LaunchRequest("/p", "continue", "name"),
-                [
-                    "/opt/hermes-agent/venv/bin/python",
-                    "-c",
-                    mock.ANY,
-                    "--profile=default",
-                    "--tui",
-                    "--no-restore-cwd",
-                    "--continue=name",
-                ],
-            ),
-            (
-                LaunchRequest("/p", "resume", "id"),
-                [
-                    "/opt/hermes-agent/venv/bin/python",
-                    "-c",
-                    mock.ANY,
-                    "--profile=default",
-                    "--tui",
-                    "--no-restore-cwd",
-                    "--resume=id",
-                ],
-            ),
-        ]
-        for request, expected in cases:
-            with self.subTest(request=request):
-                self.assertEqual(build_hermes_argv(config, request), expected)
+    def test_plugin_enabled_reads_block_and_inline_lists(self) -> None:
+        config = load_server_config(self.path)
+        self.assertTrue(plugin_enabled(config))
+        (self.home / "config.yaml").write_text("plugins:\n  enabled: [other, hermachy]\n")
+        self.assertTrue(plugin_enabled(config))
+        (self.home / "config.yaml").write_text("plugins:\n  enabled:\n    - other\nterminal:\n  - hermachy\n")
+        self.assertFalse(plugin_enabled(config))
 
     def test_executor_ssh_argv_is_fixed_and_quotes_no_client_shell(self) -> None:
         config = ServerConfig(Path("/h"), "host", "user", Path("/key"), 2200)
@@ -179,129 +76,87 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(argv[:4], ["ssh", "-T", "-F", "/dev/null"])
         self.assertIn("BatchMode=yes", argv)
         self.assertIn("StrictHostKeyChecking=yes", argv)
-        self.assertNotIn("StrictHostKeyChecking=accept-new", argv)
         self.assertEqual(argv[-2], "user@host")
         self.assertNotIn("touch /tmp/pwned", argv[-1])
-        self.assertIn("python3 -c", argv[-1])
 
-    def test_doctor_reports_both_sides(self) -> None:
-        config = ServerConfig(Path("/h"), "host", "omarchy-user", Path("/key"))
-        executor = {"hostname": "omarchy", "user": "omarchy-user", "cwd": "/home/u/p", "system": "Linux"}
-        completions = [
-            subprocess.CompletedProcess([], 0, "Hermes Agent v0.21.0\n", ""),
-            subprocess.CompletedProcess([], 0, json.dumps(executor) + "\n", ""),
-        ]
+    loaded_version = __version__
+
+    def doctor(self, executor_report: dict, *, plugin_version: str = __version__):
+        (self.home / "plugins" / "hermachy" / "plugin.yaml").write_text(f"version: {plugin_version}\n")
+        config = load_server_config(self.path)
         output = io.StringIO()
-        with mock.patch("hermachy.server.subprocess.run", side_effect=completions), mock.patch(
-            "hermachy.server.socket.gethostname", return_value="Morpheus"
-        ), mock.patch("hermachy.server.getpass.getuser", return_value="studio-user"), mock.patch(
-            "sys.stdout", output
-        ):
-            result = run_doctor(config, LaunchRequest("/home/u/p", "doctor"))
-        self.assertEqual(result, 0)
-        report = json.loads(output.getvalue())
-        self.assertEqual(report["status"], "ok")
-        self.assertEqual(report["studio"]["hostname"], "Morpheus")
-        self.assertEqual(report["executor"], executor)
-        self.assertNotIn("identity", json.dumps(report).lower())
+        loaded = {"plugins": [{"name": "hermachy", "version": self.loaded_version, "enabled": True, "error": ""}]}
+        with mock.patch("hermachy.bridge.request_once", return_value=loaded), \
+                mock.patch("hermachy.server.subprocess.run", side_effect=[
+                    subprocess.CompletedProcess([], 0, "Hermes Agent v0.23.1\n", ""),
+                    subprocess.CompletedProcess([], 0, json.dumps(executor_report), "")]), \
+                mock.patch("sys.stdout", output):
+            code = run_doctor(config, LaunchRequest("/p", "doctor"))
+        return code, json.loads(output.getvalue())
 
-    def test_safe_executor_capability_fails_closed(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            path, config = self.make_config(Path(directory))
-            del path
-            failures = [
-                subprocess.CompletedProcess([], 1, "", "missing"),
-                subprocess.CompletedProcess([], 0, "1\n", ""),
-                subprocess.CompletedProcess([], 0, "999\n", ""),
-                subprocess.CompletedProcess([], 1, SAFE_EXECUTOR_CAPABILITY_VERSION, "failed import"),
-            ]
-            for completed in failures:
-                with self.subTest(completed=completed), mock.patch(
-                    "hermachy.server.subprocess.run", return_value=completed
-                ), self.assertRaisesRegex(ServerError, "safe-executor"):
-                    verify_safe_executor_capability(config)
+    def test_doctor_reports_both_sides_and_the_shared_gateway_transport(self) -> None:
+        access = {"version": "1", "ssh_entrypoint": True, "desktop": True, "wayland": True, "user_bus": True,
+                  "administration": {"available": True}}
+        code, report = self.doctor({"hostname": "o", "user": "omarchy-user", "cwd": "/p", "system": "Linux",
+                                    "access": access})
+        self.assertEqual(code, 0, report)
+        self.assertEqual(report["transport"], "shared-gateway-v1")
+        self.assertEqual(report["version"], __version__)
+        self.assertEqual(report["studio"]["plugin"], __version__)
+        self.assertEqual(report["warnings"], [])
 
-            with mock.patch(
-                "hermachy.server.subprocess.run",
-                return_value=subprocess.CompletedProcess([], 0, SAFE_EXECUTOR_CAPABILITY_VERSION + "\n", ""),
-            ) as capability_probe:
-                verify_safe_executor_capability(config)
-            self.assertEqual(
-                capability_probe.call_args.args[0][0],
-                str(config.hermes_source_root / "venv" / "bin" / "python"),
-            )
-            self.assertEqual(
-                capability_probe.call_args.kwargs["env"]["PYTHONPATH"],
-                str(config.hermes_source_root),
-            )
-            self.assertNotIn("PYTHONHOME", capability_probe.call_args.kwargs["env"])
+    def test_doctor_refuses_a_stale_plugin(self) -> None:
+        code, report = self.doctor({"hostname": "o", "user": "omarchy-user", "cwd": "/p", "system": "Linux"},
+                                   plugin_version="0.5.2")
+        self.assertEqual(code, 1)
+        self.assertIn("plugin", report["error"])
+
+    def test_doctor_refuses_when_the_running_gateway_has_not_loaded_the_plugin(self) -> None:
+        self.loaded_version = "0.5.2"
+        code, report = self.doctor({"hostname": "o", "user": "omarchy-user", "cwd": "/p", "system": "Linux"})
+        self.assertEqual(code, 1)
+        self.assertIn("gateway", report["error"])
 
     def test_doctor_rejects_mismatched_executor_identity(self) -> None:
-        config = ServerConfig(Path("/h"), "host", "omarchy-user", Path("/key"))
-        bad_reports = [
-            {"hostname": "o", "user": "other", "cwd": "/p", "system": "Linux"},
-            {"hostname": "o", "user": "omarchy-user", "cwd": "/wrong", "system": "Linux"},
-            {"hostname": "o", "user": "omarchy-user", "cwd": "/p", "system": "Darwin"},
-            {"hostname": "o", "user": "omarchy-user", "cwd": "/p"},
-        ]
-        for report in bad_reports:
-            completions = [
-                subprocess.CompletedProcess([], 0, "Hermes Agent v0.21.0\n", ""),
-                subprocess.CompletedProcess([], 0, json.dumps(report), ""),
-            ]
-            output = io.StringIO()
-            with self.subTest(report=report), mock.patch(
-                "hermachy.server.subprocess.run", side_effect=completions
-            ), mock.patch("sys.stdout", output):
-                self.assertEqual(run_doctor(config, LaunchRequest("/p", "doctor")), 1)
-            self.assertEqual(json.loads(output.getvalue())["status"], "error")
+        for executor in ({"hostname": "o", "user": "other", "cwd": "/p", "system": "Linux"},
+                         {"hostname": "o", "user": "omarchy-user", "cwd": "/wrong", "system": "Linux"},
+                         {"hostname": "o", "user": "omarchy-user", "cwd": "/p", "system": "Darwin"}):
+            with self.subTest(executor=executor):
+                code, report = self.doctor(executor)
+                self.assertEqual(code, 1)
+                self.assertEqual(report["status"], "error")
 
-    def test_main_requires_forced_command(self) -> None:
-        error = io.StringIO()
-        with mock.patch.dict(os.environ, {}, clear=True), mock.patch("sys.stderr", error):
+    def test_continue_resolves_the_latest_session_bound_to_this_workspace(self) -> None:
+        bindings = Bindings(self.home)
+        bindings.prepare("a" * 32, "/home/u/project")
+        bindings.prepare("b" * 32, "/home/u/other")
+        bindings.bind_session("older", "a" * 32)
+        bindings.bind_session("elsewhere", "b" * 32)
+        os.utime(self.home / "hermachy" / "sessions" / "older.json", (1, 1))
+        bindings.bind_session("newer", "a" * 32)
+        config = load_server_config(self.path)
+        output = io.StringIO()
+        with mock.patch("sys.stdout", output), mock.patch("hermachy.bridge.request_once") as remote:
+            self.assertEqual(resolve_session(config, LaunchRequest("/home/u/project", "resolve")), 0)
+            remote.assert_not_called()
+        self.assertEqual(json.loads(output.getvalue()), {"session": "newer"})
+
+    def test_main_requires_the_v2_forced_command(self) -> None:
+        with mock.patch.dict(os.environ, {"HERMACHY_SERVER_CONFIG": str(self.path),
+                                          "SSH_ORIGINAL_COMMAND": "hermachy-v1 abc"}):
             self.assertEqual(main([]), 2)
-        self.assertIn("expected", error.getvalue())
 
-    def test_main_rejects_interactive_launch_without_tty(self) -> None:
-        request = LaunchRequest("/home/u/p")
-        with tempfile.TemporaryDirectory() as directory:
-            path, _ = self.make_config(Path(directory))
-            env = {
-                "SSH_ORIGINAL_COMMAND": f"hermachy-v1 {encode_request(request)}",
-                "HERMACHY_SERVER_CONFIG": str(path),
-            }
-            with mock.patch.dict(os.environ, env, clear=True), mock.patch(
-                "hermachy.server.has_interactive_tty", return_value=False
-            ), mock.patch(
-                "hermachy.server.verify_safe_executor_capability", return_value=None
-            ):
-                self.assertEqual(main([]), 2)
+    def test_main_runs_the_bridge_for_attach(self) -> None:
+        request = LaunchRequest("/home/u/p", "attach", connection="c" * 32)
+        with mock.patch.dict(os.environ, {"HERMACHY_SERVER_CONFIG": str(self.path),
+                                          "SSH_ORIGINAL_COMMAND": f"{FORCED_COMMAND} {encode_request(request)}"}), \
+                mock.patch("hermachy.bridge.run_attach", return_value=0) as attach:
+            self.assertEqual(main([]), 0)
+        args = attach.call_args.args
+        self.assertEqual(args[:4], (self.hermes, self.home, "c" * 32, "/home/u/p"))
 
-    def test_main_execs_hermes_without_a_shell(self) -> None:
-        request = LaunchRequest("/home/u/p", "continue", "name")
-        with tempfile.TemporaryDirectory() as directory:
-            path, config = self.make_config(Path(directory))
-            env = {
-                "SSH_ORIGINAL_COMMAND": f"hermachy-v1 {encode_request(request)}",
-                "HERMACHY_SERVER_CONFIG": str(path),
-                "HOME": "/Users/u",
-            }
-            with mock.patch.dict(os.environ, env, clear=True), mock.patch(
-                "hermachy.server.has_interactive_tty", return_value=True
-            ), mock.patch(
-                "hermachy.server.verify_safe_executor_capability", return_value=None
-            ), mock.patch("hermachy.server.os.execvpe", side_effect=RuntimeError("stop")) as execute:
-                with self.assertRaisesRegex(RuntimeError, "stop"):
-                    main([])
-        argv = execute.call_args.args[1]
-        child_env = execute.call_args.args[2]
-        self.assertEqual(argv, build_hermes_argv(config, request))
-        self.assertEqual(
-            execute.call_args.args[0],
-            str(config.hermes_source_root / "venv" / "bin" / "python"),
-        )
-        self.assertEqual(child_env["TERMINAL_CWD"], request.cwd)
-        self.assertEqual(child_env["PYTHONPATH"], str(config.hermes_source_root))
+    def test_main_rejects_command_line_arguments(self) -> None:
+        self.assertEqual(main(["--anything"]), 2)
 
 
 if __name__ == "__main__":

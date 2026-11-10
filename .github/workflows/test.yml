@@ -32,61 +32,41 @@ jobs:
           ./dist/hermachy-server --version
           ./dist/hermachy-admin --help >/dev/null
           ./dist/hermachy-exec --version
+          test ! -e ./dist/hermachy-gateway
       - name: Verify release checksums and package
         if: matrix.python-version == '3.13'
         run: python scripts/build_release.py --check
 
-  hermes-compatibility:
+  hermes-plugin:
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
+    env:
+      HERMES_REVISION: 3b421578588243f920886e6fe79a6faa87ea026e  # v0.23.1; keep in sync with tui/PROVENANCE.json
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.14"
-      - name: Prepare pinned Hermes from public source
-        run: python compat/hermes/prepare.py "$RUNNER_TEMP/hermes-compatible"
-      - name: Install locked runtime and test dependencies
-        working-directory: ${{ runner.temp }}/hermes-compatible
+      - name: Fetch the pinned stock Hermes release
+        run: |
+          git init -q "$RUNNER_TEMP/hermes"
+          git -C "$RUNNER_TEMP/hermes" remote add origin https://github.com/NousResearch/hermes-agent.git
+          git -C "$RUNNER_TEMP/hermes" fetch -q --depth=1 origin "$HERMES_REVISION"
+          git -C "$RUNNER_TEMP/hermes" checkout -q --detach FETCH_HEAD
+      - name: Install Hermes's locked runtime
+        working-directory: ${{ runner.temp }}/hermes
         run: |
           HERMES_HOME="$RUNNER_TEMP/hermes-build-profile" \
           HERMES_RUNTIME_DIR="$RUNNER_TEMP/hermes-build-tools" \
-            python -m pm.build_env --source . --out venv --group dev --group test
-      - name: Probe the installed capability
-        working-directory: ${{ runner.temp }}/hermes-compatible
+            python -m pm.build_env --source . --out venv
+      - name: Check the bridge's method list matches the pinned Hermes
         run: |
-          HERMES_HOME="$RUNNER_TEMP/hermes-profile" venv/bin/python -c 'from tools.environments.ssh import HERMACHY_CONTROL_VERSION; assert HERMACHY_CONTROL_VERSION == "2"; print("Hermachy safe-executor v2: OK")'
-      - name: Test Hermachy prompt integration with pinned Hermes
+          python scripts/update_attach_methods.py "$RUNNER_TEMP/hermes"
+          git diff --exit-code -- src/hermachy/attach_methods.py
+      - name: Test the Hermachy plugin against the real Hermes runtime
         run: |
-          PYTHONPATH="$GITHUB_WORKSPACE/src:$RUNNER_TEMP/hermes-compatible" \
-            "$RUNNER_TEMP/hermes-compatible/venv/bin/python" \
-            -m unittest discover -s tests/integration -v
-      - name: Run Hermes contract and gateway regression tests
-        working-directory: ${{ runner.temp }}/hermes-compatible
-        run: |
-          ulimit -n 4096
-          HERMES_PYTHON="$PWD/venv/bin/python" scripts/run_tests.sh -j 4 \
-            tests/hermes_cli/test_hermachy_safe_executor.py \
-            tests/tools/test_hermachy_safe_executor_ssh.py \
-            tests/tools/test_hermachy_surface_propagation.py \
-            tests/tools/test_ssh_environment.py \
-            tests/tools/test_ssh_bulk_upload.py \
-            tests/tools/test_terminal_scope_multiplex.py \
-            tests/gateway/test_hermachy_executor_bridge.py \
-            tests/hermes_cli/test_env_loader.py \
-            tests/hermes_cli/test_config_env_expansion.py \
-            tests/tools/test_terminal_env_bridge.py \
-            tests/tools/test_file_tools_container_config.py \
-            tests/pm/test_hermachy_install_policy.py \
-            tests/pm/test_lazy_install_policy.py \
-            tests/tui_gateway/test_hermachy_boundary.py \
-            tests/tui_gateway/test_hermachy_eof_shutdown.py \
-            tests/tui_gateway/contracts/test_generated.py \
-            tests/tui_gateway/test_protocol.py \
-            tests/tui_gateway/test_tui_gateway_server.py \
-            tests/agent/test_prompt_builder.py
-      - name: Verify installed source has not drifted
-        run: python compat/hermes/prepare.py --check "$RUNNER_TEMP/hermes-compatible"
+          PYTHONPATH="$GITHUB_WORKSPACE/src:$RUNNER_TEMP/hermes:$GITHUB_WORKSPACE/tests/integration" \
+            "$RUNNER_TEMP/hermes/venv/bin/python" -m unittest test_hermachy_plugin -v

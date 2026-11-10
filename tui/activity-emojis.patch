@@ -1,7 +1,7 @@
-diff --git a/ui-tui/src/__tests__/text.test.ts b/ui-tui/src/__tests__/text.test.ts
+diff --git c/ui-tui/src/__tests__/text.test.ts i/ui-tui/src/__tests__/text.test.ts
 index e566871c8b33e77a76fabb0330bca6102d8834a4..c1cb47359b27669dc66ad934f49b654f0159a571 100644
---- a/ui-tui/src/__tests__/text.test.ts
-+++ b/ui-tui/src/__tests__/text.test.ts
+--- c/ui-tui/src/__tests__/text.test.ts
++++ i/ui-tui/src/__tests__/text.test.ts
 @@ -7,6 +7,7 @@ import {
    buildVerboseToolTrailLine,
    edgePreview,
@@ -43,10 +43,10 @@ index e566871c8b33e77a76fabb0330bca6102d8834a4..c1cb47359b27669dc66ad934f49b654f
        detail: 'Error:\ncommand failed',
        mark: '✗'
      })
-diff --git a/ui-tui/src/components/thinking.tsx b/ui-tui/src/components/thinking.tsx
+diff --git c/ui-tui/src/components/thinking.tsx i/ui-tui/src/components/thinking.tsx
 index e6c1cac555b6a8ad8f6064301556909a60c04e5f..ab2224480938c504f58186abe0261ca850da467e 100644
---- a/ui-tui/src/components/thinking.tsx
-+++ b/ui-tui/src/components/thinking.tsx
+--- c/ui-tui/src/components/thinking.tsx
++++ i/ui-tui/src/components/thinking.tsx
 @@ -42,6 +42,10 @@ import type {
  const THINK: BrailleSpinnerName[] = ['helix', 'breathe', 'orbit', 'dna', 'waverows', 'snake', 'pulse']
  const TOOL: BrailleSpinnerName[] = ['cascade', 'scan', 'diagswipe', 'fillsweep', 'rain', 'columns', 'sparkle']
@@ -76,11 +76,11 @@ index e6c1cac555b6a8ad8f6064301556909a60c04e5f..ab2224480938c504f58186abe0261ca8
  
              return (
                <Box flexDirection="column" key={group.key}>
-diff --git a/ui-tui/src/content/toolEmojis.ts b/ui-tui/src/content/toolEmojis.ts
+diff --git c/ui-tui/src/content/toolEmojis.ts i/ui-tui/src/content/toolEmojis.ts
 new file mode 100644
 index 0000000000000000000000000000000000000000..19b1fc5c512285344de9468707de67d9f39422f1
 --- /dev/null
-+++ b/ui-tui/src/content/toolEmojis.ts
++++ i/ui-tui/src/content/toolEmojis.ts
 @@ -0,0 +1,41 @@
 +// Match the pinned Hermes registry for calls without gateway-supplied labels.
 +const TOOL_EMOJIS = new Map([
@@ -123,10 +123,10 @@ index 0000000000000000000000000000000000000000..19b1fc5c512285344de9468707de67d9
 +
 +export const toolEmoji = (name: string): string =>
 +  TOOL_EMOJIS.get(name) ?? TOOL_FAMILY_EMOJIS.find(([prefix]) => name.startsWith(prefix))?.[1] ?? '⚡'
-diff --git a/ui-tui/src/lib/text.ts b/ui-tui/src/lib/text.ts
+diff --git c/ui-tui/src/lib/text.ts i/ui-tui/src/lib/text.ts
 index 9197a7e7e5cdd7d22e53d687320fc345c7c1e5a0..c5eb3d80f187b0747da945bcad468532786c5924 100644
---- a/ui-tui/src/lib/text.ts
-+++ b/ui-tui/src/lib/text.ts
+--- c/ui-tui/src/lib/text.ts
++++ i/ui-tui/src/lib/text.ts
 @@ -9,6 +9,7 @@ import {
    VERBOSE_TRAIL_MAX_CHARS,
    VERBOSE_TRAIL_MAX_LINES

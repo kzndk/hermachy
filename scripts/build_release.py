@@ -16,14 +16,14 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
 
 from hermachy import __version__
-from scripts.build_zipapps import build_all
+from scripts.build_zipapps import PLUGIN_FILES, TUI_ASSETS, build_all
 
 
 def build_release(output: Path, manifest: Path, *, check: bool = False) -> Path:
     artifacts = build_all(output)
     files = {item.name: item for item in artifacts}
-    files.update({"tui/" + item.name: item for item in sorted((output / "tui").iterdir())
-                  if item.name in {"entry.mjs", "LICENSE", "PROVENANCE.json", "activity-emojis.patch", "omarchy-theme.patch"}})
+    files.update({f"tui/{name}": output / "tui" / name for name in TUI_ASSETS})
+    files.update({f"plugin/hermachy/{name}": output / "plugin" / "hermachy" / name for name in PLUGIN_FILES})
     hashes = {name: hashlib.sha256(item.read_bytes()).hexdigest()
               for name, item in files.items()}
     if check:
@@ -38,10 +38,7 @@ def build_release(output: Path, manifest: Path, *, check: bool = False) -> Path:
     payloads = {name: item.read_bytes() for name, item in files.items()}
     payloads["LICENSE"] = (ROOT / "LICENSE").read_bytes()
     payloads["release-sha256.json"] = manifest.read_bytes()
-    for name in ("README.md", "CHANGELOG.md", "SECURITY.md", "docs/OMARCHY_REMOTE_HERMES.md",
-                 "compat/hermes/README.md", "compat/hermes/LICENSE",
-                 "compat/hermes/manifest.json", "compat/hermes/prepare.py",
-                 "compat/hermes/safe-executor-v2.patch"):
+    for name in ("README.md", "CHANGELOG.md", "SECURITY.md", "docs/OMARCHY_REMOTE_HERMES.md"):
         payloads[name] = (ROOT / name).read_bytes()
     with archive.open("wb") as raw, gzip.GzipFile(fileobj=raw, mode="wb", filename="", mtime=0) as compressed:
         with tarfile.open(fileobj=compressed, mode="w", format=tarfile.USTAR_FORMAT) as bundle:

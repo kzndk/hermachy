@@ -18,7 +18,6 @@ ENTRYPOINTS = {
     "hermachy": ROOT / "entrypoints" / "client" / "__main__.py",
     "hermachy-server": ROOT / "entrypoints" / "server" / "__main__.py",
     "hermachy-admin": ROOT / "entrypoints" / "admin" / "__main__.py",
-    "hermachy-gateway": ROOT / "entrypoints" / "gateway" / "__main__.py",
     "hermachy-exec": ROOT / "entrypoints" / "executor" / "__main__.py",
 }
 SHEBANG = b"#!/usr/bin/env python3\n"
@@ -75,22 +74,31 @@ def build_one(name: str, output_dir: Path) -> Path:
     return target
 
 
+TUI_ASSETS = ("entry.mjs", "PROVENANCE.json", "LICENSE", "activity-emojis.patch", "omarchy-theme.patch",
+              "scripts/clipboard_image.py")
+PLUGIN_FILES = ("plugin.yaml", "__init__.py")
+
+
 def build_all(output_dir: Path) -> list[Path]:
     # Ship the renderer with the same parser revision, not just the zipapps.
-    assets = {name: (ROOT / "tui" / name).read_bytes()
-              for name in ("entry.mjs", "PROVENANCE.json", "LICENSE", "activity-emojis.patch", "omarchy-theme.patch")}
+    assets = {name: (ROOT / "tui" / name).read_bytes() for name in TUI_ASSETS}
     provenance = json.loads(assets["PROVENANCE.json"])
-    for name, data in (("entry.mjs", assets["entry.mjs"]),
-                       ("activity-emojis.patch", assets["activity-emojis.patch"]),
-                       ("omarchy-theme.patch", assets["omarchy-theme.patch"]),
-                       ("hermes_parser.py", (SOURCE_PACKAGE / "hermes_parser.py").read_bytes())):
+    checked = {name: data for name, data in assets.items() if name not in {"PROVENANCE.json", "LICENSE"}}
+    checked["hermes_parser.py"] = (SOURCE_PACKAGE / "hermes_parser.py").read_bytes()
+    if set(checked) != set(provenance["assets"]):
+        raise ValueError("TUI provenance does not list exactly the shipped assets")
+    for name, data in checked.items():
         if hashlib.sha256(data).hexdigest() != provenance["assets"][name]:
             raise ValueError(f"TUI provenance checksum mismatch: {name}")
     artifacts = [build_one(name, output_dir) for name in ENTRYPOINTS]
-    target = output_dir / "tui"
-    target.mkdir(parents=True, exist_ok=True)
     for name, data in assets.items():
-        (target / name).write_bytes(data)
+        target = output_dir / "tui" / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(data)
+    for name in PLUGIN_FILES:
+        target = output_dir / "plugin" / "hermachy" / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes((ROOT / "plugin" / "hermachy" / name).read_bytes())
     return artifacts
 
 

@@ -1,6 +1,6 @@
 [project]
 name = "hermachy"
-version = "0.5.2"
+version = "0.6.0"
 description = "Persistent remote Hermes TUI with Omarchy and Hermes execution"
 requires-python = ">=3.9"
 license = {text = "MIT"}
@@ -11,4 +11,4 @@ Repository = "https://github.com/kzndk/hermachy"
 Issues = "https://github.com/kzndk/hermachy/issues"
 
 [tool.hermachy]
-protocol-version = 1
+protocol-version = 2

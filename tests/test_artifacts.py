@@ -20,7 +20,7 @@ class ArtifactTests(unittest.TestCase):
             self.assertTrue((output / 'tui/PROVENANCE.json').is_file())
             self.assertEqual(
                 [path.name for path in artifacts],
-                ["hermachy", "hermachy-server", "hermachy-admin", "hermachy-gateway", "hermachy-exec"],
+                ["hermachy", "hermachy-server", "hermachy-admin", "hermachy-exec"],
             )
             for path in artifacts:
                 with self.subTest(path=path):
@@ -69,7 +69,7 @@ class ArtifactTests(unittest.TestCase):
                 hashes.append(
                     [
                         hashlib.sha256((output / name).read_bytes()).hexdigest()
-                        for name in ("hermachy", "hermachy-server", "hermachy-admin", "hermachy-gateway", "hermachy-exec")
+                        for name in ("hermachy", "hermachy-server", "hermachy-admin", "hermachy-exec")
                     ]
                 )
         self.assertEqual(hashes[0], hashes[1])

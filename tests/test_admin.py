@@ -155,10 +155,13 @@ class AdminTests(unittest.TestCase):
             home.mkdir()
             artifact = root / "hermachy"
             artifact.write_bytes(b"#!/usr/bin/env python3\nprint('hermachy')\n")
-            (root / "hermachy-gateway").write_bytes(b"#!/usr/bin/env python3\n")
             (root / "hermachy-exec").write_bytes(b"#!/usr/bin/env python3\n")
-            (root / "tui").mkdir()
+            (root / "tui" / "scripts").mkdir(parents=True)
             (root / "tui/entry.mjs").write_text('// native TUI fixture\n')
+            (root / "tui/scripts/clipboard_image.py").write_text('# helper\n')
+            stale = home / ".local" / "bin" / "hermachy-gateway"
+            stale.parent.mkdir(parents=True)
+            stale.write_bytes(b"0.5 stdio relay")
             studio_pub = root / "studio.pub"
             studio_pub.write_text(valid_public_key("studio"), encoding="utf-8")
             ssh_dir = home / ".ssh"
@@ -183,7 +186,8 @@ class AdminTests(unittest.TestCase):
             self.assertIn('hermachy-exec" ssh-ed25519', first)
             self.assertTrue((home / ".local" / "bin" / "hermachy").is_file())
             self.assertTrue((home / ".local" / "bin" / "hermachy-admin").is_file())
-            self.assertTrue((home / ".local" / "bin" / "hermachy-gateway").is_file())
+            self.assertFalse(stale.exists())
+            self.assertTrue((home / ".local/share/hermachy/tui/scripts/clipboard_image.py").is_file())
             self.assertTrue((home / ".local" / "bin" / "hermachy-exec").is_file())
             self.assertTrue((home / ".local/share/hermachy/tui/entry.mjs").is_file())
             self.assertFalse((home / ".local" / "bin" / "hermachy").is_symlink())
@@ -209,38 +213,38 @@ class AdminTests(unittest.TestCase):
                 self.assertEqual(main(args), 2)
             self.assertEqual(target.read_bytes(), b'working client')
 
-    def test_studio_finish_installs_forced_command_without_overwriting_keys(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            home = root / "home"
-            home.mkdir()
-            artifact = root / "hermachy-server"
-            artifact.write_bytes(b"#!/usr/bin/env python3\n")
+    def studio_fixture(self, root: Path):
+        home = root / "home"
+        home.mkdir()
+        artifact = root / "hermachy-server"
+        artifact.write_bytes(b"#!/usr/bin/env python3\n")
+        plugin = root / "plugin" / "hermachy"
+        plugin.mkdir(parents=True)
+        (plugin / "plugin.yaml").write_text("name: hermachy\nversion: 0.6.0\n")
+        (plugin / "__init__.py").write_text("def register(ctx):\n    pass\n")
+        ensure_ed25519_key(home / ".ssh" / "hermachy_to_omarchy", "studio-executor")
+        client_pub = root / "client.pub"
+        client_pub.write_text(valid_public_key("client"), encoding="utf-8")
+        hermes_home = home / ".hermes"
+        hermes_home.mkdir()
+        log = root / "hermes-calls"
+        hermes = root / "hermes"
+        (hermes_home / "config.yaml").write_text("platform_toolsets:\n  cli:\n    - terminal\n    - hermachy\n"
+                                                 "  slack:\n    - hermes-slack\n    - hermachy\n"
+                                                 "  discord:\n    - hermes-discord\nother: 1\n")
+        hermes.write_text(f"#!/bin/sh\necho \"$*\" >> {log}\n")
+        hermes.chmod(0o755)
+        args = ["studio-finish", "--artifact", str(artifact),
+                "--executor-host", "omarchy.example-tailnet.ts.net", "--executor-user", "omarchy-user",
+                "--client-public-key", str(client_pub), "--hermes-command", str(hermes),
+                "--hermes-home", str(hermes_home)]
+        return home, hermes_home, hermes, log, args
 
-            executor_key, _ = ensure_ed25519_key(
-                home / ".ssh" / "hermachy_to_omarchy", "studio-executor"
-            )
-            client_pub = root / "client.pub"
-            client_pub.write_text(valid_public_key("client"), encoding="utf-8")
-            hermes_source_root = root / "hermes-agent"
-            runtime_bin = hermes_source_root / "venv" / "bin"
-            runtime_bin.mkdir(parents=True)
-            hermes = runtime_bin / "hermes"
-            hermes.write_bytes(b"#!/bin/sh\n")
-            hermes.chmod(0o755)
-            runtime_python = runtime_bin / "python"
-            runtime_python.write_bytes(b"#!/bin/sh\n")
-            runtime_python.chmod(0o755)
+    def test_studio_finish_installs_server_plugin_and_forced_command(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            home, hermes_home, hermes, log, args = self.studio_fixture(Path(directory))
             authorized = home / ".ssh" / "authorized_keys"
             authorized.write_text("ssh-ed25519 AAAA unrelated\n", encoding="utf-8")
-            args = [
-                "studio-finish",
-                "--artifact", str(artifact),
-                "--executor-host", "omarchy.example-tailnet.ts.net",
-                "--executor-user", "omarchy-user",
-                "--client-public-key", str(client_pub),
-                "--hermes-source-root", str(hermes_source_root),
-            ]
             with mock.patch.dict(os.environ, {"HOME": str(home)}, clear=False):
                 self.assertEqual(main(args), 0)
                 first = authorized.read_text()
@@ -248,57 +252,40 @@ class AdminTests(unittest.TestCase):
             self.assertEqual(first, authorized.read_text())
             self.assertIn("unrelated", first)
             server_path = home / ".local" / "bin" / "hermachy-server"
-            self.assertIn(f'command="{server_path}"', first)
-            self.assertIn("restrict,pty", first)
+            self.assertIn(f'restrict,command="{server_path}"', first)
+            self.assertNotIn("pty", first)
             config_path = home / ".config" / "hermachy" / "server.json"
             config = json.loads(config_path.read_text())
-            self.assertEqual(config["executor_user"], "omarchy-user")
             self.assertEqual(config["hermes_command"], str(hermes))
+            self.assertEqual(config["hermes_home"], str(hermes_home))
+            self.assertNotIn("hermes_source_root", config)
             self.assertEqual(stat.S_IMODE(config_path.stat().st_mode), 0o600)
+            self.assertTrue((hermes_home / "plugins" / "hermachy" / "__init__.py").is_file())
+            for sub in ("", "connections", "sessions", "workspaces"):
+                self.assertEqual(stat.S_IMODE((hermes_home / "hermachy" / sub).stat().st_mode), 0o700)
+            calls = log.read_text()
+            self.assertIn("--profile default plugins enable hermachy --no-allow-tool-override", calls)
+            self.assertIn("--profile default tools disable hermachy --platform slack", calls)
+            self.assertNotIn("--platform cli", calls)
+            self.assertNotIn("--platform discord", calls)
 
-    def test_studio_finish_rejects_command_outside_probed_runtime(self) -> None:
+    def test_studio_finish_can_install_without_enabling(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            home = root / "home"
-            home.mkdir()
-            artifact = root / "hermachy-server"
-            artifact.write_bytes(b"#!/usr/bin/env python3\n")
-            installed = home / '.local/bin/hermachy-server'
+            home, hermes_home, _, log, args = self.studio_fixture(Path(directory))
+            with mock.patch.dict(os.environ, {"HOME": str(home)}, clear=False):
+                self.assertEqual(main(args + ["--no-enable"]), 0)
+            self.assertFalse(log.exists())
+
+    def test_studio_finish_rejects_a_missing_hermes_command(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            home, _, hermes, _, args = self.studio_fixture(Path(directory))
+            hermes.unlink()
+            installed = home / ".local/bin/hermachy-server"
             installed.parent.mkdir(parents=True)
-            installed.write_bytes(b'working server')
-            unrelated_hermes = root / "other-hermes"
-            unrelated_hermes.write_bytes(b"#!/bin/sh\n")
-            unrelated_hermes.chmod(0o755)
-            ensure_ed25519_key(home / ".ssh" / "hermachy_to_omarchy", "studio-executor")
-            client_pub = root / "client.pub"
-            client_pub.write_text(valid_public_key("client"), encoding="utf-8")
-            runtime_bin = root / "hermes-agent" / "venv" / "bin"
-            runtime_bin.mkdir(parents=True)
-            runtime_hermes = runtime_bin / "hermes"
-            runtime_hermes.write_bytes(b"#!/bin/sh\n")
-            runtime_hermes.chmod(0o755)
-            runtime_python = runtime_bin / "python"
-            runtime_python.write_bytes(b"#!/bin/sh\n")
-            runtime_python.chmod(0o755)
-            args = [
-                "studio-finish",
-                "--artifact", str(artifact),
-                "--executor-host", "omarchy.example-tailnet.ts.net",
-                "--executor-user", "omarchy-user",
-                "--client-public-key", str(client_pub),
-                "--hermes-command", str(unrelated_hermes),
-                "--hermes-source-root", str(root / "hermes-agent"),
-            ]
-
-            with mock.patch.dict(os.environ, {"HOME": str(home)}, clear=False), mock.patch(
-                "sys.stderr", new_callable=io.StringIO
-            ) as error:
+            installed.write_bytes(b"working server")
+            with mock.patch.dict(os.environ, {"HOME": str(home)}, clear=False):
                 self.assertEqual(main(args), 2)
-
-            self.assertIn("same Hermes runtime", error.getvalue())
-            self.assertEqual(installed.read_bytes(), b'working server')
-            authorized = home / ".ssh" / "authorized_keys"
-            self.assertFalse(authorized.exists())
+            self.assertEqual(installed.read_bytes(), b"working server")
 
 
 if __name__ == "__main__":

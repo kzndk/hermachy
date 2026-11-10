@@ -10,14 +10,15 @@ import shlex
 from dataclasses import dataclass
 from typing import Any
 
-PROTOCOL_VERSION = 1
+PROTOCOL_VERSION = 2
+FORCED_COMMAND = f"hermachy-v{PROTOCOL_VERSION}"
 MAX_TOKEN_BYTES = 8192
 MAX_CWD_CHARS = 4096
 MAX_SESSION_CHARS = 512
-ACTIONS = frozenset({"new", "continue", "resume", "doctor", "gateway", "resolve"})
+ACTIONS = frozenset({"doctor", "resolve", "attach"})
 _TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 _REQUIRED_FIELDS = frozenset({"v", "cwd", "action"})
-_ALLOWED_FIELDS = _REQUIRED_FIELDS | {"session", "env", "connection"}
+_ALLOWED_FIELDS = _REQUIRED_FIELDS | {"session", "connection"}
 
 
 class ProtocolError(ValueError):
@@ -29,21 +30,11 @@ class LaunchRequest:
     """A validated request to launch or inspect a linked Hermes session."""
 
     cwd: str
-    action: str = "new"
+    action: str = "doctor"
     session: str | None = None
-    env: dict[str, str] | None = None
     connection: str | None = None
 
 
-# Only presentation/invocation settings; execution routing and Python imports
-# remain entirely under the server launcher's control.
-LAUNCH_ENV_KEYS = frozenset({
-    "HERMES_MODEL", "HERMES_INFERENCE_MODEL", "HERMES_TUI_PROVIDER",
-    "HERMES_INFERENCE_PROVIDER", "HERMES_TUI_TOOLSETS", "HERMES_TUI_SKILLS",
-    "HERMES_TUI_CHECKPOINTS", "HERMES_TUI_PASS_SESSION_ID", "HERMES_TUI_MAX_TURNS",
-    "HERMES_TUI_TOOL_PROGRESS", "HERMES_ACCEPT_HOOKS", "HERMES_YOLO_MODE",
-    "HERMES_IGNORE_USER_CONFIG", "HERMES_IGNORE_RULES", "HERMES_SAFE_MODE",
-})
 
 
 def _contains_control(text: str) -> bool:
@@ -93,28 +84,17 @@ def _validate_payload(payload: Any) -> LaunchRequest:
         if session.startswith("-"):
             raise ProtocolError("session must not begin with '-'")
 
-    if action in {"new", "doctor"} and has_session:
+    if action in {"doctor", "attach"} and has_session:
         raise ProtocolError(f"action {action!r} does not accept a session")
-    if action == "resume" and not has_session:
-        raise ProtocolError("resume requires a session")
-
-    launch_env = payload.get("env")
-    if launch_env is not None:
-        if not isinstance(launch_env, dict) or set(launch_env) - LAUNCH_ENV_KEYS:
-            raise ProtocolError("unsupported launch environment")
-        if action != "gateway":
-            raise ProtocolError("launch environment is only valid for gateway")
-        launch_env = {k: _validate_text(v, k, maximum=2048)
-                      for k, v in launch_env.items()}
-    if action == "gateway" and has_session:
-        raise ProtocolError("gateway does not accept a session")
     connection = payload.get("connection")
     if "connection" in payload and (
-        action != "gateway" or not isinstance(connection, str)
+        action != "attach" or not isinstance(connection, str)
         or not re.fullmatch(r"[a-f0-9]{32}", connection)
     ):
-        raise ProtocolError("connection requires a gateway and a 32-character hex ID")
-    return LaunchRequest(cwd=cwd, action=action, session=session, env=launch_env,
+        raise ProtocolError("connection requires attach and a 32-character hex ID")
+    if action == "attach" and connection is None:
+        raise ProtocolError("attach requires a connection ID")
+    return LaunchRequest(cwd=cwd, action=action, session=session,
                          connection=connection)
 
 
@@ -137,8 +117,6 @@ def encode_request(request: LaunchRequest) -> str:
     }
     if request.session is not None:
         payload["session"] = request.session
-    if request.env is not None:
-        payload["env"] = request.env
     if request.connection is not None:
         payload["connection"] = request.connection
     validated = _validate_payload(payload)
@@ -151,8 +129,6 @@ def encode_request(request: LaunchRequest) -> str:
     if validated.session is not None:
         serializable["session"] = validated.session
 
-    if validated.env is not None:
-        serializable["env"] = validated.env
     if validated.connection is not None:
         serializable["connection"] = validated.connection
 
@@ -206,6 +182,6 @@ def parse_forced_command(command: str | None) -> LaunchRequest:
         words = shlex.split(command or "", posix=True)
     except ValueError as exc:
         raise ProtocolError("malformed forced command") from exc
-    if len(words) != 2 or words[0] != "hermachy-v1":
-        raise ProtocolError("expected: hermachy-v1 <request>")
+    if len(words) != 2 or words[0] != FORCED_COMMAND:
+        raise ProtocolError(f"expected: {FORCED_COMMAND} <request>; upgrade the Hermachy client and server together")
     return decode_request(words[1])

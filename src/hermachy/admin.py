@@ -8,6 +8,7 @@ import binascii
 import contextlib
 import fcntl
 import json
+import shutil
 import os
 from pathlib import Path
 import re
@@ -314,10 +315,9 @@ def omarchy_install(args: argparse.Namespace) -> int:
     bin_dir = _absolute_runtime_path(args.bin_dir, "bin_dir") if args.bin_dir else default_bin
     config_dir = default_config
     artifact = Path(args.artifact).expanduser()
-    gateway_artifact = artifact.parent / "hermachy-gateway"
     executor_artifact = artifact.parent / "hermachy-exec"
     tui_dir = artifact.parent / "tui"
-    for required in (artifact, gateway_artifact, executor_artifact, tui_dir / "entry.mjs"):
+    for required in (artifact, executor_artifact, tui_dir / "entry.mjs"):
         if not required.is_file():
             raise AdminError(f"incomplete native TUI release: missing {required}")
     if args.admin_artifact and not Path(args.admin_artifact).expanduser().is_file():
@@ -340,15 +340,18 @@ def omarchy_install(args: argparse.Namespace) -> int:
     private, public = ensure_ed25519_key(key_path, "hermachy-omarchy-client")
     client_path = bin_dir / "hermachy"
     install_executable(artifact, client_path)
-    # Native TUI assets travel with the zipapps in a release directory.
-    install_executable(gateway_artifact, bin_dir / "hermachy-gateway")
+    # 0.5.x's stdio relay is replaced by the client's loopback WebSocket relay.
+    stale_gateway = bin_dir / "hermachy-gateway"
+    if stale_gateway.is_file():
+        stale_gateway.unlink()
     executor_path = bin_dir / "hermachy-exec"
     install_executable(executor_artifact, executor_path)
     target_tui = Path.home() / ".local" / "share" / "hermachy" / "tui"
     target_tui.mkdir(parents=True, exist_ok=True)
-    for source in tui_dir.iterdir():
+    for source in sorted(tui_dir.rglob("*")):
         if source.is_file():
-            atomic_write(target_tui / source.name, source.read_bytes(), 0o644)
+            destination = target_tui / source.relative_to(tui_dir)
+            atomic_write(destination, source.read_bytes(), 0o644)
 
     admin_path = None
     if args.admin_artifact:
@@ -393,6 +396,85 @@ def _quote_authorized_command(path: Path) -> str:
     return shell_word.replace("\\", "\\\\").replace('"', '\\"')
 
 
+PLUGIN_FILES = ("plugin.yaml", "__init__.py")
+
+
+def _default_hermes_command() -> str:
+    found = shutil.which("hermes") or str(Path.home() / ".local" / "bin" / "hermes")
+    return found
+
+
+def install_plugin(plugin_dir: Path, hermes_home: Path) -> Path:
+    """Copy the Hermachy plugin into the profile's plugins directory (replaced atomically per file)."""
+    for name in PLUGIN_FILES:
+        if not (plugin_dir / name).is_file():
+            raise AdminError(f"incomplete Hermachy plugin: missing {plugin_dir / name}")
+    target = hermes_home / "plugins" / "hermachy"
+    target.mkdir(parents=True, exist_ok=True)
+    target.chmod(0o755)
+    for name in PLUGIN_FILES:
+        atomic_write(target / name, (plugin_dir / name).read_bytes(), 0o644)
+    state = hermes_home / "hermachy"
+    for directory in (state, state / "connections", state / "sessions", state / "workspaces"):
+        _ensure_private_directory(directory)
+    return target
+
+
+def enable_plugin(hermes_command: Path, hermes_home: Path) -> None:
+    env = dict(os.environ)
+    if hermes_home.expanduser() != (Path.home() / ".hermes"):
+        env["HERMES_HOME"] = str(hermes_home)
+    result = subprocess.run(
+        [str(hermes_command), "--profile", "default", "plugins", "enable", "hermachy", "--no-allow-tool-override"],
+        check=False, capture_output=True, text=True, timeout=120, stdin=subprocess.DEVNULL, env=env,
+    )
+    if result.returncode != 0:
+        raise AdminError("could not enable the Hermachy plugin: "
+                         + (result.stderr.strip() or result.stdout.strip() or f"exit {result.returncode}"))
+
+
+def platforms_with_toolset(config_text: str, toolset: str = "hermachy") -> list[str]:
+    """Platforms under ``platform_toolsets`` whose list names *toolset* (line-based, no YAML dependency)."""
+    found, in_block, platform = [], False, None
+    for line in config_text.splitlines():
+        if line.rstrip() == "platform_toolsets:":
+            in_block, platform = True, None
+            continue
+        if in_block and line and not line[0].isspace():
+            break
+        if in_block:
+            stripped = line.strip()
+            if line.startswith("  ") and not line.startswith("   ") and stripped.endswith(":"):
+                platform = stripped[:-1]
+            elif stripped == f"- {toolset}" and platform and platform not in found:
+                found.append(platform)
+    return found
+
+
+def limit_toolset_to_cli(hermes_command: Path, hermes_home: Path) -> list[str]:
+    """``plugins enable`` adds the plugin's toolset to every platform; Hermachy sessions use ``cli``
+    only, so the messaging surfaces must not see a host tool that only ever refuses there."""
+    env = dict(os.environ)
+    if hermes_home.expanduser() != (Path.home() / ".hermes"):
+        env["HERMES_HOME"] = str(hermes_home)
+    try:
+        text = (hermes_home / "config.yaml").read_text(encoding="utf-8")
+    except OSError:
+        return []
+    removed = []
+    for platform in platforms_with_toolset(text):
+        if platform == "cli":
+            continue
+        result = subprocess.run([str(hermes_command), "--profile", "default", "tools", "disable", "hermachy",
+                                 "--platform", platform], check=False, capture_output=True, text=True,
+                                timeout=120, stdin=subprocess.DEVNULL, env=env)
+        if result.returncode != 0:
+            raise AdminError(f"could not limit the hermachy toolset to cli (platform {platform}): "
+                             + (result.stderr.strip() or result.stdout.strip() or f"exit {result.returncode}"))
+        removed.append(platform)
+    return removed
+
+
 def studio_finish(args: argparse.Namespace) -> int:
     ssh_dir, default_bin, default_config = _home_paths()
     bin_dir = _absolute_runtime_path(args.bin_dir, "bin_dir") if args.bin_dir else default_bin
@@ -405,10 +487,10 @@ def studio_finish(args: argparse.Namespace) -> int:
     server_path = bin_dir / "hermachy-server"
     if not artifact.is_file():
         raise AdminError(f"artifact not found: {artifact}")
+    plugin_dir = Path(args.plugin_dir).expanduser() if args.plugin_dir else artifact.parent / "plugin" / "hermachy"
     client_key = _read_public_key(
         Path(args.client_public_key).expanduser(), "hermachy-omarchy-client"
     )
-
     executor_key = (
         _absolute_runtime_path(args.executor_key, "executor_key")
         if args.executor_key
@@ -417,41 +499,14 @@ def studio_finish(args: argparse.Namespace) -> int:
     executor_public = executor_key.with_name(executor_key.name + ".pub")
     if not executor_key.is_file() or not executor_public.is_file():
         raise AdminError("Studio execution key is missing; run studio-prepare first")
-    executor_key, executor_public = ensure_ed25519_key(
-        executor_key, "hermachy-studio-executor"
-    )
+    executor_key, executor_public = ensure_ed25519_key(executor_key, "hermachy-studio-executor")
 
-    hermes_source_root = Path(args.hermes_source_root).expanduser()
-    if not hermes_source_root.is_absolute() or not hermes_source_root.is_dir():
-        raise AdminError(f"Hermes source root is missing: {hermes_source_root}")
-    runtime_bin = hermes_source_root / "venv" / "bin"
-    hermes_command = runtime_bin / "hermes"
-    runtime_python = runtime_bin / "python"
-    for runtime_path, label in (
-        (hermes_command, "Hermes runtime command"),
-        (runtime_python, "Hermes runtime Python"),
-    ):
-        if not runtime_path.is_file() or not os.access(runtime_path, os.X_OK):
-            raise AdminError(f"{label} is missing or not executable: {runtime_path}")
-    if args.hermes_command:
-        requested_command = Path(args.hermes_command).expanduser()
-        if (
-            not requested_command.is_absolute()
-            or not requested_command.is_file()
-            or not os.access(requested_command, os.X_OK)
-        ):
-            raise AdminError(
-                f"Hermes command is missing or not executable: {requested_command}"
-            )
-        try:
-            same_runtime = os.path.samefile(requested_command, hermes_command)
-        except OSError as exc:
-            raise AdminError(f"cannot verify Hermes runtime command: {exc}") from exc
-        if not same_runtime:
-            raise AdminError(
-                "--hermes-command must identify the same Hermes runtime as "
-                "--hermes-source-root/venv/bin/hermes"
-            )
+    hermes_command = _absolute_runtime_path(args.hermes_command or _default_hermes_command(), "hermes_command")
+    if not hermes_command.is_file() or not os.access(hermes_command, os.X_OK):
+        raise AdminError(f"Hermes command is missing or not executable: {hermes_command}")
+    hermes_home = _absolute_runtime_path(args.hermes_home, "hermes_home")
+    if not hermes_home.is_dir():
+        raise AdminError(f"Hermes home is missing: {hermes_home}")
 
     host = _safe_endpoint(args.executor_host, "executor_host")
     user = _safe_endpoint(args.executor_user, "executor_user")
@@ -462,17 +517,21 @@ def studio_finish(args: argparse.Namespace) -> int:
         "executor_port": port,
         "executor_user": user,
         "hermes_command": str(hermes_command),
-        "hermes_source_root": str(hermes_source_root),
+        "hermes_home": str(hermes_home),
     }
     config_path = config_dir / "server.json"
+    plugin_path = install_plugin(plugin_dir, hermes_home)
     install_executable(artifact, server_path)
     atomic_write(config_path, _json_bytes(config), 0o600)
+    if not args.no_enable:
+        enable_plugin(hermes_command, hermes_home)
+        limit_toolset_to_cli(hermes_command, hermes_home)
 
     forced = _quote_authorized_command(server_path)
     upsert_marked_block(
         ssh_dir / "authorized_keys",
         "omarchy-client",
-        [f'restrict,pty,command="{forced}" {client_key}'],
+        [f'restrict,command="{forced}" {client_key}'],
         0o600,
     )
     print(
@@ -481,7 +540,9 @@ def studio_finish(args: argparse.Namespace) -> int:
                 "status": "installed",
                 "server": str(server_path),
                 "config": str(config_path),
+                "plugin": str(plugin_path),
                 "executor": f"{user}@{host}:{port}",
+                "next": "restart the default profile's gateway (hermes gateway restart) so it loads the plugin",
             },
             sort_keys=True,
         )
@@ -521,18 +582,19 @@ def parser() -> argparse.ArgumentParser:
     omarchy.add_argument("--bin-dir")
     omarchy.set_defaults(handler=omarchy_install)
 
-    finish = commands.add_parser("studio-finish", help="install and authorize the Studio server")
-    finish.add_argument("--artifact", required=True)
+    finish = commands.add_parser("studio-finish", help="install the host server and Hermes plugin")
+    finish.add_argument("--artifact", required=True, help="hermachy-server from the release")
+    finish.add_argument("--plugin-dir", help="release plugin/hermachy directory (default: beside --artifact)")
     finish.add_argument("--executor-host", required=True)
     finish.add_argument("--executor-user", required=True)
     finish.add_argument("--executor-port", type=int, default=22)
     finish.add_argument("--client-public-key", required=True)
     finish.add_argument("--executor-key")
-    finish.add_argument(
-        "--hermes-command",
-        help="optional compatibility check; must be the source root's venv/bin/hermes",
-    )
-    finish.add_argument("--hermes-source-root", default="~/.hermes/hermes-agent")
+    finish.add_argument("--hermes-command", help="the host's hermes launcher (default: hermes on PATH)")
+    finish.add_argument("--hermes-home", default=str(Path("~/.hermes").expanduser()),
+                        help="the default profile's Hermes home (default: ~/.hermes)")
+    finish.add_argument("--no-enable", action="store_true",
+                        help="install the plugin without enabling it in plugins.enabled")
     finish.add_argument("--bin-dir")
     finish.set_defaults(handler=studio_finish)
 

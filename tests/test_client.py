@@ -9,6 +9,7 @@ from unittest import mock
 from hermachy.client import (
     ClientConfig,
     ClientError,
+    build_launch_env,
     build_request,
     build_ssh_argv,
     load_client_config,
@@ -84,9 +85,9 @@ class ClientTests(unittest.TestCase):
             identity_file=Path("/home/u/.ssh/hermachy"),
             studio_port=2222,
         )
-        request = build_request(parse_args(["--resume", "abc"]), Path("/home/u/p"))
+        request = LaunchRequest("/home/u/p", "resolve", "abc")
         argv = build_ssh_argv(config, request)
-        self.assertEqual(argv[:4], ["ssh", "-tt", "-F", "/dev/null"])
+        self.assertEqual(argv[:4], ["ssh", "-T", "-F", "/dev/null"])
         self.assertIn("IdentitiesOnly=yes", argv)
         self.assertIn("StrictHostKeyChecking=yes", argv)
         self.assertNotIn("StrictHostKeyChecking=accept-new", argv)
@@ -94,40 +95,54 @@ class ClientTests(unittest.TestCase):
         self.assertIn("ServerAliveInterval=15", argv)
         self.assertIn("ServerAliveCountMax=3", argv)
         self.assertEqual(argv[-2], "studio-user@morpheus.example-tailnet.ts.net")
-        self.assertTrue(argv[-1].startswith("hermachy-v1 "))
+        self.assertTrue(argv[-1].startswith("hermachy-v2 "))
+        for forbidden in ("-tt", "-t"):
+            self.assertNotIn(forbidden, argv)
         decoded = decode_request(argv[-1].split(" ", 1)[1])
         self.assertEqual(decoded.cwd, "/home/u/p")
-        self.assertEqual(decoded.action, "resume")
+        self.assertEqual(decoded.action, "resolve")
         self.assertEqual(decoded.session, "abc")
 
-    def test_action_parsing(self) -> None:
+    def test_requests_are_doctor_checks_for_the_workspace(self) -> None:
         cwd = Path("/home/u/project")
-        cases = [
-            ([], ("new", None)),
-            (["--continue"], ("continue", None)),
-            (["-c", "named"], ("continue", "named")),
-            (["--resume", "id"], ("resume", "id")),
-            (["--doctor"], ("doctor", None)),
-        ]
-        for argv, expected in cases:
+        for argv in ([], ["--continue"], ["-c", "named"], ["--resume", "id"], ["--doctor"]):
             with self.subTest(argv=argv):
                 request = build_request(parse_args(argv), cwd)
-                self.assertEqual((request.action, request.session), expected)
+                self.assertEqual((request.action, request.cwd), ("doctor", str(cwd)))
+
+    def test_launch_options_travel_in_the_local_tui_environment(self) -> None:
+        env = build_launch_env(parse_args(["chat", "--model", "m", "--provider", "p", "-s", "a", "-s", "b",
+                                           "--yolo", "--checkpoints", "--max-turns", "5"]))
+        self.assertEqual(env["HERMES_MODEL"], "m")
+        self.assertEqual(env["HERMES_TUI_PROVIDER"], "p")
+        self.assertEqual(env["HERMES_TUI_SKILLS"], "a,b")
+        self.assertEqual(env["HERMES_YOLO_MODE"], "1")
+        self.assertEqual(env["HERMES_TUI_CHECKPOINTS"], "1")
+        self.assertEqual(env["HERMES_TUI_MAX_TURNS"], "5")
+
+    def test_bypass_options_are_refused(self) -> None:
+        for argv in (["--safe-mode"], ["--ignore-user-config"]):
+            with self.subTest(argv=argv), self.assertRaises(ClientError):
+                build_launch_env(parse_args(argv))
 
     def test_native_scrollback_flag_reaches_local_renderer(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            entry, gateway = root / "entry.mjs", root / "hermachy-gateway"
+            entry = root / "entry.mjs"
             entry.touch()
-            gateway.touch()
             config = ClientConfig("host", "user", root / "key")
-            with mock.patch.dict(os.environ, {"HOME": directory, "HERMES_TUI_NATIVE": "1"}), mock.patch(
-                "hermachy.client.ui_paths", return_value=(entry, gateway)
+            url = "ws://127.0.0.1:1234/secret"
+            with mock.patch.dict(os.environ, {"HOME": directory, "HERMES_TUI_NATIVE": "1",
+                                              "HERMES_TUI_GATEWAY_URL": "ws://elsewhere"}), mock.patch(
+                "hermachy.client.ui_entry", return_value=entry
             ), mock.patch("hermachy.client.shutil.which", return_value="/usr/bin/node"):
                 for argv, expected in (([], "0"), (["--native"], "1"), (["chat", "--tui-native"], "1")):
                     with self.subTest(argv=argv):
-                        _, env = prepare_local_ui(parse_args(argv), config, LaunchRequest(directory, "gateway"))
+                        _, env = prepare_local_ui(parse_args(argv), config, directory, url)
                         self.assertEqual(env["HERMES_TUI_NATIVE"], expected)
+                        self.assertEqual(env["HERMES_TUI_GATEWAY_URL"], url)
+                        self.assertEqual(env["HERMES_CWD"], directory)
+                        self.assertTrue(env["HERMACHY_REQUEST"])  # enables the Omarchy theme patch
 
     def test_mutually_exclusive_actions(self) -> None:
         with self.assertRaises(SystemExit):
@@ -152,12 +167,10 @@ class ClientTests(unittest.TestCase):
             root = Path(directory)
             config_path = self.write_config(root)
             entry = root / "entry.mjs"
-            gateway = root / "hermachy-gateway"
             entry.touch()
-            gateway.touch()
             with mock.patch.dict(
                 os.environ, {"HERMACHY_CLIENT_CONFIG": str(config_path)}, clear=False
-            ), mock.patch("hermachy.client.ui_paths", return_value=(entry, gateway)), \
+            ), mock.patch("hermachy.client.ui_entry", return_value=entry), \
                     mock.patch("hermachy.client.shutil.which", return_value="/usr/bin/node"), \
                     mock.patch("hermachy.client.subprocess.run") as run:
                 run.return_value = subprocess.CompletedProcess([], 17)
@@ -221,3 +234,22 @@ class ClientTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ClientRelayLaunchTests(unittest.TestCase):
+    def test_main_checks_versions_before_starting_the_relay(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            key = root / "key"
+            key.write_text("k")
+            config = root / "client.json"
+            config.write_text(json.dumps({"studio_host": "h", "studio_user": "u", "identity_file": str(key)}))
+            entry = root / "entry.mjs"
+            entry.touch()
+            with mock.patch.dict(os.environ, {"HERMACHY_CLIENT_CONFIG": str(config)}), \
+                    mock.patch("hermachy.client.ui_entry", return_value=entry), \
+                    mock.patch("hermachy.client.check_remote",
+                               return_value={"status": "ok", "version": "0.5.2", "warnings": []}), \
+                    mock.patch("hermachy.relay.Relay") as relay:
+                self.assertEqual(main(["--cwd", directory]), 2)
+                relay.assert_not_called()

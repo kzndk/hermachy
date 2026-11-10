@@ -1,8 +1,8 @@
-diff --git a/ui-tui/src/__tests__/omarchyTheme.test.ts b/ui-tui/src/__tests__/omarchyTheme.test.ts
+diff --git c/ui-tui/src/__tests__/omarchyTheme.test.ts i/ui-tui/src/__tests__/omarchyTheme.test.ts
 new file mode 100644
 index 0000000000000000000000000000000000000000..1c400d4af39378aff6b0296cd0d9bcdfde7fd7e4
 --- /dev/null
-+++ b/ui-tui/src/__tests__/omarchyTheme.test.ts
++++ i/ui-tui/src/__tests__/omarchyTheme.test.ts
 @@ -0,0 +1,117 @@
 +import { mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 +import { tmpdir } from 'node:os'
@@ -121,19 +121,19 @@ index 0000000000000000000000000000000000000000..1c400d4af39378aff6b0296cd0d9bcdf
 +  const { $omarchyColors } = await import('../app/omarchyThemeStore.js')
 +  expect($omarchyColors.get()).toBeNull()
 +})
-diff --git a/ui-tui/src/app/createGatewayEventHandler.ts b/ui-tui/src/app/createGatewayEventHandler.ts
-index 97108ba1b402766d7efc98652365f068b9634f35..13cab268f2ca075a073cb7b4803d8d4a0ebf8bfd 100644
---- a/ui-tui/src/app/createGatewayEventHandler.ts
-+++ b/ui-tui/src/app/createGatewayEventHandler.ts
-@@ -33,6 +33,7 @@ import { applyDelegationStatus, getDelegationState } from './delegationStore.js'
- import { createBillingVerificationPresenter, createFreeTierChallengePresenter } from './gatewayBrowserLinks.js'
- import { applyGoalSnapshot } from './goalStatus.js'
+diff --git c/ui-tui/src/app/createGatewayEventHandler.ts i/ui-tui/src/app/createGatewayEventHandler.ts
+index 2244a44c6e00c9604f576c1e8bcf679f33383d31..fc323f6c3f7c161cb0bc4865069ff6293e21d106 100644
+--- c/ui-tui/src/app/createGatewayEventHandler.ts
++++ i/ui-tui/src/app/createGatewayEventHandler.ts
+@@ -44,6 +44,7 @@ import {
+ import { reportGatewayStartTimeout } from './gatewayStartTimeout.js'
  import type { GatewayEventHandlerContext, NoticeLevel } from './interfaces.js'
+ import { applyControlSnapshot } from './loopStatus.js'
 +import { $omarchyColors } from './omarchyThemeStore.js'
  import { getOverlayState, patchOverlayState, SENSITIVE_PROMPTS } from './overlayStore.js'
- import { flashGoodVibes, flashPet } from './petFlashStore.js'
- import { forgetServerRequest } from './serverRequestStore.js'
-@@ -113,7 +114,7 @@ const themeForSkin = (s: GatewaySkin) => {
+ import { takePastes } from './pasteStore.js'
+ import { markBubbleShown, newlyStartedRows } from './pendingBubbles.js'
+@@ -132,7 +133,7 @@ const themeForSkin = (s: GatewaySkin) => {
    const colors = paired && Object.keys(paired).length ? { ...(s.colors ?? {}), ...paired } : (s.colors ?? {})
  
    return fromSkin(
@@ -142,7 +142,7 @@ index 97108ba1b402766d7efc98652365f068b9634f35..13cab268f2ca075a073cb7b4803d8d4a
      s.branding ?? {},
      s.banner_logo ?? '',
      s.banner_hero ?? '',
-@@ -188,7 +189,7 @@ const themesEqual = (a: Theme, b: Theme) => {
+@@ -207,7 +208,7 @@ const themesEqual = (a: Theme, b: Theme) => {
  // The text tone resolves through themeToneHex because a limited-palette
  // terminal quantizes it to `ansi256(N)`, which OSC-10 cannot speak.
  const paintTerminalDefaults = (theme: Theme) => {
@@ -151,7 +151,7 @@ index 97108ba1b402766d7efc98652365f068b9634f35..13cab268f2ca075a073cb7b4803d8d4a
  
    setTerminalBackground(background)
    setTerminalForeground(isPaintableHex(background) ? themeToneHex(theme.color.text) : '')
-@@ -205,7 +206,7 @@ const applySkin = (s: GatewaySkin) => {
+@@ -224,7 +225,7 @@ const applySkin = (s: GatewaySkin) => {
  /** Re-derive the theme from current detection signals (env overrides, cached
   *  OSC-11 answer) — used by /theme, config sync, and the OSC listener. */
  export function reapplyTheme(): void {
@@ -160,7 +160,7 @@ index 97108ba1b402766d7efc98652365f068b9634f35..13cab268f2ca075a073cb7b4803d8d4a
  
    commitTheme(theme)
    // Polarity flips swap paired palettes, so the default fg must track the
-@@ -307,6 +308,12 @@ export function syncThemeToTerminalBackground(): void {
+@@ -326,6 +327,12 @@ export function syncThemeToTerminalBackground(): void {
  
    themeBackgroundSyncStarted = true
  
@@ -173,11 +173,11 @@ index 97108ba1b402766d7efc98652365f068b9634f35..13cab268f2ca075a073cb7b4803d8d4a
    let resolved = false
  
    onTerminalBackground(hex => {
-diff --git a/ui-tui/src/app/omarchyThemeStore.ts b/ui-tui/src/app/omarchyThemeStore.ts
+diff --git c/ui-tui/src/app/omarchyThemeStore.ts i/ui-tui/src/app/omarchyThemeStore.ts
 new file mode 100644
 index 0000000000000000000000000000000000000000..bbcbfbb3a551193594de6a70d0581763dd3ddee2
 --- /dev/null
-+++ b/ui-tui/src/app/omarchyThemeStore.ts
++++ i/ui-tui/src/app/omarchyThemeStore.ts
 @@ -0,0 +1,128 @@
 +import { readFileSync } from 'node:fs'
 +import { homedir } from 'node:os'
@@ -307,10 +307,10 @@ index 0000000000000000000000000000000000000000..bbcbfbb3a551193594de6a70d0581763
 +    ? join(process.env.XDG_STATE_HOME || join(homedir(), '.local/state'), 'omarchy/current/theme/colors.toml')
 +    : null
 +)
-diff --git a/ui-tui/src/app/uiStore.ts b/ui-tui/src/app/uiStore.ts
-index b29c0ecea1c8c9324de3e8d4c6960e6d5c11fab6..047131a0d767ba3e4bc2c27cd0f91a9e06b5c8d7 100644
---- a/ui-tui/src/app/uiStore.ts
-+++ b/ui-tui/src/app/uiStore.ts
+diff --git c/ui-tui/src/app/uiStore.ts i/ui-tui/src/app/uiStore.ts
+index 6645ecb69d259df566b548a235820bfed7dd8ab9..bdbe10d006826a54f4ddb326e2b2f2d927c354ca 100644
+--- c/ui-tui/src/app/uiStore.ts
++++ i/ui-tui/src/app/uiStore.ts
 @@ -4,9 +4,18 @@ import { MOUSE_TRACKING } from '../config/env.js'
  import { ZERO } from '../domain/usage.js'
  import { t } from '../i18n/runtime.js'
@@ -331,7 +331,7 @@ index b29c0ecea1c8c9324de3e8d4c6960e6d5c11fab6..047131a0d767ba3e4bc2c27cd0f91a9e
  
  const buildUiState = (): UiState => ({
    battery: false,
-@@ -40,7 +49,7 @@ const buildUiState = (): UiState => ({
+@@ -41,7 +50,7 @@ const buildUiState = (): UiState => ({
    timestamps: false,
    // Last session's resolved theme paints frame one (flash-free boot, like
    // the desktop's hermes-boot-* keys); DEFAULT_THEME only on first launch.
