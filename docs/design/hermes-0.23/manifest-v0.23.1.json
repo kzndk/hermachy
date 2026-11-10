@@ -1,0 +1,10 @@
+{
+  "repository": "https://github.com/NousResearch/hermes-agent.git",
+  "revision": "3b421578588243f920886e6fe79a6faa87ea026e",
+  "patch_sha256": "e73041bc45948d871da84f4e6c55d6ab7e5aa2e69d54acf61b56b16232ca4733",
+  "patched_tree": "0d09b1fbb77f8d665ea7a85b86c6f2ac008f74c1",
+  "capability": "2",
+  "python": "3.14",
+  "release": "v0.23.1",
+  "dependency_manager": "Hermes PM (committed uv.lock)"
+}

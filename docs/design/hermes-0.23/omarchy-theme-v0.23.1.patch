@@ -1,0 +1,342 @@
+diff --git c/ui-tui/src/__tests__/omarchyTheme.test.ts i/ui-tui/src/__tests__/omarchyTheme.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..1c400d4af39378aff6b0296cd0d9bcdfde7fd7e4
+--- /dev/null
++++ i/ui-tui/src/__tests__/omarchyTheme.test.ts
+@@ -0,0 +1,117 @@
++import { mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from 'node:fs'
++import { tmpdir } from 'node:os'
++import { join } from 'node:path'
++
++import { afterEach, beforeEach, expect, it, vi } from 'vitest'
++
++const dark = `
++background = "#0B0C16"
++foreground = "#ddf7ff"
++accent = "#82FB9C"
++cyan = "#7cf8f7"
++selection = "#1f253a"
++lighter_background = "#151828"
++`
++
++// Community palettes can use ANSI names and single quotes.
++const light = `
++color0 = '#fafafa'
++color7 = '#202020'
++color4 = '#164ba0' # accent
++color8 = '#606060'
++`
++
++let root: string
++let themeDir: string
++
++let cleanup = () => {}
++
++beforeEach(() => {
++  vi.resetModules()
++  root = mkdtempSync(join(tmpdir(), 'hermachy-omarchy-theme-'))
++  themeDir = join(root, 'omarchy/current/theme')
++  mkdirSync(themeDir, { recursive: true })
++  writeFileSync(join(themeDir, 'colors.toml'), dark)
++  vi.stubEnv('XDG_STATE_HOME', root)
++  vi.stubEnv('HERMES_HOME', join(root, 'hermes'))
++  vi.stubEnv('HERMACHY_REQUEST', 'local-session')
++  vi.stubEnv('COLORTERM', 'truecolor')
++})
++
++afterEach(() => {
++  cleanup()
++
++  cleanup = () => {}
++  vi.unstubAllEnvs()
++  rmSync(root, { force: true, recursive: true })
++})
++
++it('follows local palette replacements without changing the active session or accepting remote colors', async () => {
++  // A remote mode pin or stale boot background cannot override Omarchy.
++  vi.stubEnv('HERMES_TUI_THEME', 'light')
++  vi.stubEnv('HERMES_TUI_BACKGROUND', '#ffffff')
++  const { getUiState, patchUiState } = await import('../app/uiStore.js')
++  const { createGatewayEventHandler } = await import('../app/createGatewayEventHandler.js')
++  const { $omarchyColors } = await import('../app/omarchyThemeStore.js')
++  const { cleanStores } = await import('nanostores')
++  cleanup = () => cleanStores($omarchyColors)
++
++  // The first frame already matches the desktop, before gateway.ready.
++  expect(getUiState().theme.color.primary).toBe('#82fb9c')
++  expect(getUiState().theme.color.text).toBe('#ddf7ff')
++  patchUiState({ busy: true, sid: 'keep-this-session', sessionTitle: 'In progress', status: 'running…' })
++  const { theme: _theme, ...before } = getUiState()
++  const rpc = vi.fn()
++  const setInput = vi.fn()
++  const newSession = vi.fn()
++
++  const handle = createGatewayEventHandler({
++    composer: { setInput },
++    gateway: { rpc },
++    session: { newSession },
++    submission: {},
++    system: {},
++    transcript: {},
++    voice: {}
++  } as any)
++
++  const remoteSkin = {
++    branding: { agent_name: 'Hermachy', prompt_symbol: '>' },
++    colors: { background: '#000000', ui_primary: '#ffbf00', ui_text: '#ffbf00' },
++    light_colors: { ui_primary: '#990000' }
++  }
++
++  handle({ type: 'skin.changed', payload: remoteSkin })
++  expect(getUiState().theme.brand.name).toBe('Hermachy')
++  expect(getUiState().theme.color.primary).toBe('#82fb9c')
++
++  // Omarchy replaces the directory, not just the file's contents.
++  renameSync(themeDir, join(root, 'old-theme'))
++  mkdirSync(themeDir)
++  writeFileSync(join(themeDir, 'colors.toml'), light)
++  await vi.waitFor(() => expect(getUiState().theme.color.primary).toBe('#164ba0'), { timeout: 3000 })
++  expect(getUiState().theme.color.text).toBe('#202020')
++  expect($omarchyColors.get()?.background).toBe('#fafafa')
++  handle({ type: 'skin.changed', payload: remoteSkin })
++  expect(getUiState().theme.color.primary).toBe('#164ba0')
++
++  // A transient incomplete palette must not revert to the remote skin.
++  writeFileSync(join(themeDir, 'colors.toml'), 'background = "#0B0C16"\n')
++  const valid = $omarchyColors.get()
++  await new Promise(resolve => setTimeout(resolve, 1200))
++  expect($omarchyColors.get()).toBe(valid)
++  writeFileSync(join(themeDir, 'colors.toml'), dark)
++  await vi.waitFor(() => expect(getUiState().theme.color.primary).toBe('#82fb9c'), { timeout: 3000 })
++  const { theme: updated, ...after } = getUiState()
++  expect(after).toEqual(before)
++  expect(updated.brand.name).toBe('Hermachy')
++  expect(rpc).not.toHaveBeenCalled()
++  expect(setInput).not.toHaveBeenCalled()
++  expect(newSession).not.toHaveBeenCalled()
++}, 15000)
++
++it('leaves ordinary Hermes launches on their gateway skin even when Omarchy is installed', async () => {
++  vi.stubEnv('HERMACHY_REQUEST', '')
++  const { $omarchyColors } = await import('../app/omarchyThemeStore.js')
++  expect($omarchyColors.get()).toBeNull()
++})
+diff --git c/ui-tui/src/app/createGatewayEventHandler.ts i/ui-tui/src/app/createGatewayEventHandler.ts
+index 2244a44c6e00c9604f576c1e8bcf679f33383d31..fc323f6c3f7c161cb0bc4865069ff6293e21d106 100644
+--- c/ui-tui/src/app/createGatewayEventHandler.ts
++++ i/ui-tui/src/app/createGatewayEventHandler.ts
+@@ -44,6 +44,7 @@ import {
+ import { reportGatewayStartTimeout } from './gatewayStartTimeout.js'
+ import type { GatewayEventHandlerContext, NoticeLevel } from './interfaces.js'
+ import { applyControlSnapshot } from './loopStatus.js'
++import { $omarchyColors } from './omarchyThemeStore.js'
+ import { getOverlayState, patchOverlayState, SENSITIVE_PROMPTS } from './overlayStore.js'
+ import { takePastes } from './pasteStore.js'
+ import { markBubbleShown, newlyStartedRows } from './pendingBubbles.js'
+@@ -132,7 +133,7 @@ const themeForSkin = (s: GatewaySkin) => {
+   const colors = paired && Object.keys(paired).length ? { ...(s.colors ?? {}), ...paired } : (s.colors ?? {})
+ 
+   return fromSkin(
+-    colors,
++    $omarchyColors.get() ?? colors,
+     s.branding ?? {},
+     s.banner_logo ?? '',
+     s.banner_hero ?? '',
+@@ -207,7 +208,7 @@ const themesEqual = (a: Theme, b: Theme) => {
+ // The text tone resolves through themeToneHex because a limited-palette
+ // terminal quantizes it to `ansi256(N)`, which OSC-10 cannot speak.
+ const paintTerminalDefaults = (theme: Theme) => {
+-  const background = lastSkin?.colors?.background ?? ''
++  const background = $omarchyColors.get()?.background ?? lastSkin?.colors?.background ?? ''
+ 
+   setTerminalBackground(background)
+   setTerminalForeground(isPaintableHex(background) ? themeToneHex(theme.color.text) : '')
+@@ -224,7 +225,7 @@ const applySkin = (s: GatewaySkin) => {
+ /** Re-derive the theme from current detection signals (env overrides, cached
+  *  OSC-11 answer) — used by /theme, config sync, and the OSC listener. */
+ export function reapplyTheme(): void {
+-  const theme = lastSkin ? themeForSkin(lastSkin) : defaultThemeForCurrentBackground()
++  const theme = lastSkin || $omarchyColors.get() ? themeForSkin(lastSkin ?? {}) : defaultThemeForCurrentBackground()
+ 
+   commitTheme(theme)
+   // Polarity flips swap paired palettes, so the default fg must track the
+@@ -326,6 +327,12 @@ export function syncThemeToTerminalBackground(): void {
+ 
+   themeBackgroundSyncStarted = true
+ 
++  $omarchyColors.listen(reapplyTheme)
++
++  if ($omarchyColors.get()) {
++    reapplyTheme()
++  }
++
+   let resolved = false
+ 
+   onTerminalBackground(hex => {
+diff --git c/ui-tui/src/app/omarchyThemeStore.ts i/ui-tui/src/app/omarchyThemeStore.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..bbcbfbb3a551193594de6a70d0581763dd3ddee2
+--- /dev/null
++++ i/ui-tui/src/app/omarchyThemeStore.ts
+@@ -0,0 +1,128 @@
++import { readFileSync } from 'node:fs'
++import { homedir } from 'node:os'
++import { join } from 'node:path'
++
++import { mix } from '@hermes/shared/color'
++import type { SkinColors } from '@hermes/shared/skin'
++import { atom, onMount } from 'nanostores'
++
++const paletteColor = (palette: Record<string, string>, ...names: string[]) =>
++  names.map(name => palette[name]).find(Boolean)
++
++// Omarchy's colors.toml is a flat palette. Accept both semantic names and
++// the color0–15 names used by community themes; ignore non-color settings.
++const readPalette = (source: string): SkinColors | null => {
++  const p: Record<string, string> = {}
++
++  for (const match of source.matchAll(/^\s*([a-z][a-z0-9_]*)\s*=\s*(["'])(#[0-9a-f]{6})\2\s*(?:#.*)?$/gim)) {
++    p[match[1].toLowerCase()] = match[3].toLowerCase()
++  }
++
++  const background = paletteColor(p, 'background', 'bg', 'color0')
++  const text = paletteColor(p, 'foreground', 'fg', 'color7')
++  const accent = paletteColor(p, 'accent', 'blue', 'color4')
++
++  if (!background || !text || !accent) {
++    return null
++  }
++
++  const border = p.muted ?? mix(background, text, 0.25)
++  const muted = paletteColor(p, 'dark_foreground', 'color8') ?? mix(background, text, 0.55)
++  const surface = p.lighter_background ?? mix(background, text, 0.04)
++  const selection = p.selection ?? mix(background, accent, 0.2)
++  const green = paletteColor(p, 'green', 'color2') ?? accent
++  const yellow = paletteColor(p, 'yellow', 'color3') ?? accent
++  const red = paletteColor(p, 'red', 'color1') ?? accent
++  const cyan = paletteColor(p, 'cyan', 'color6') ?? accent
++  const magenta = paletteColor(p, 'magenta', 'color5') ?? accent
++
++  return {
++    background,
++    ui_accent: accent,
++    ui_primary: accent,
++    ui_text: text,
++    ui_border: border,
++    banner_dim: muted,
++    ui_label: cyan,
++    ui_ok: green,
++    ui_warn: yellow,
++    ui_error: red,
++    ui_tool: cyan,
++    ui_thinking: muted,
++    prompt: accent,
++    shell_dollar: green,
++    session_label: muted,
++    session_border: border,
++    status_bar_bg: surface,
++    status_bar_text: text,
++    status_bar_good: green,
++    status_bar_warn: yellow,
++    status_bar_bad: red,
++    status_bar_critical: red,
++    selection_bg: selection,
++    completion_menu_bg: surface,
++    completion_menu_current_bg: selection,
++    completion_menu_meta_bg: surface,
++    completion_menu_meta_current_bg: selection,
++    diff_added: mix(background, green, 0.15),
++    diff_removed: mix(background, red, 0.15),
++    diff_added_word: mix(background, green, 0.3),
++    diff_removed_word: mix(background, red, 0.3),
++    syntax_string: green,
++    syntax_number: yellow,
++    syntax_keyword: magenta,
++    syntax_comment: muted
++  }
++}
++
++const createOmarchyColors = (path: string | null) => {
++  const colors = atom<SkinColors | null>(null)
++
++  if (!path) {
++    return colors
++  }
++
++  let previous = ''
++
++  const refresh = () => {
++    try {
++      const source = readFileSync(path, 'utf8')
++
++      if (source === previous) {
++        return
++      }
++
++      const palette = readPalette(source)
++
++      // A theme switch can briefly remove or partially write the palette.
++      // Keep the last valid colors until the replacement is ready.
++      if (palette) {
++        previous = source
++        colors.set(palette)
++      }
++    } catch {
++      // Omarchy is optional; normal Hermes skins remain the fallback.
++    }
++  }
++
++  refresh()
++  onMount(colors, () => {
++    refresh()
++    // Poll the pathname, not an inode: Omarchy replaces the current theme
++    // directory atomically, and some installations use a symlink instead.
++    const timer = setInterval(refresh, 1000)
++    timer.unref()
++
++    return () => clearInterval(timer)
++  })
++
++  return colors
++}
++
++// The Hermachy launcher already supplies HERMACHY_REQUEST. Keep this local
++// integration out of ordinary Hermes sessions and off the remote gateway.
++export const $omarchyColors = createOmarchyColors(
++  process.env.HERMACHY_REQUEST
++    ? join(process.env.XDG_STATE_HOME || join(homedir(), '.local/state'), 'omarchy/current/theme/colors.toml')
++    : null
++)
+diff --git c/ui-tui/src/app/uiStore.ts i/ui-tui/src/app/uiStore.ts
+index 6645ecb69d259df566b548a235820bfed7dd8ab9..bdbe10d006826a54f4ddb326e2b2f2d927c354ca 100644
+--- c/ui-tui/src/app/uiStore.ts
++++ i/ui-tui/src/app/uiStore.ts
+@@ -4,9 +4,18 @@ import { MOUSE_TRACKING } from '../config/env.js'
+ import { ZERO } from '../domain/usage.js'
+ import { t } from '../i18n/runtime.js'
+ import { bootTheme } from '../lib/themeBoot.js'
+-import { DEFAULT_THEME } from '../theme.js'
++import { DEFAULT_THEME, fromSkin } from '../theme.js'
+ 
+ import { DEFAULT_INDICATOR_STYLE, type UiState } from './interfaces.js'
++import { $omarchyColors } from './omarchyThemeStore.js'
++
++const initialTheme = () => {
++  const cached = bootTheme ?? DEFAULT_THEME
++  const colors = $omarchyColors.get()
++
++  // The desktop may have changed themes while Hermachy was closed.
++  return colors ? { ...cached, color: fromSkin(colors, {}).color } : cached
++}
+ 
+ const buildUiState = (): UiState => ({
+   battery: false,
+@@ -41,7 +50,7 @@ const buildUiState = (): UiState => ({
+   timestamps: false,
+   // Last session's resolved theme paints frame one (flash-free boot, like
+   // the desktop's hermes-boot-* keys); DEFAULT_THEME only on first launch.
+-  theme: bootTheme ?? DEFAULT_THEME,
++  theme: initialTheme(),
+   usage: ZERO
+ })
+ 
