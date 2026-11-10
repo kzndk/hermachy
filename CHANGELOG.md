@@ -1,5 +1,44 @@
 # Changelog
 
+## 0.5.2 — 2026-10-19 (local build)
+
+- Update the Hermes runtime, native TUI, and CLI parser to stable v0.22.2.
+- Preserve the complete safe-executor v2 patch, workspace context, activity icons, and Omarchy theme integration.
+
+
+## 0.5.1 — 2026-10-14 (local build)
+
+- Fix the `include_session_override` error when Hermes 0.22 builds a turn's
+  system prompt or lists context files. Honor its launch-artifact option while
+  keeping project instructions on the Omarchy workstation.
+- Test full prompt assembly and context listing against the pinned Hermes
+  runtime on Linux and macOS, alongside the isolated workspace helper tests.
+
+## 0.5.0 — 2026-10-14 (local build)
+
+- Upgrade the pinned Hermes runtime, native TUI, and CLI parser to v0.22.0 at
+  `e06df9c2eae6901f4c88f464e0ae6e753c0428b8`. Build the Python 3.14 runtime
+  through Hermes PM using its committed dependency lock.
+- Port the protected SSH route to persistent-shell and file-sync controls,
+  retain profile-aware session handling, and disable PM lazy installs during
+  protected sessions. Preserve Omarchy themes and activity icons in the new TUI.
+- Support `hermachy --native` (also `--tui-native`) for Hermes 0.22's native
+  terminal scrollback mode.
+- Flush sessions and stop lingering startup workers when the local TUI closes.
+  Fetch and verify the pinned release tag so diagnostics report Hermes 0.22.0.
+
+- Follow Omarchy's active palette from the first frame and update open TUIs on
+  theme changes without restarting sessions. Preserve remote skin branding and
+  retain the last valid palette while Omarchy replaces its theme directory.
+- Read project instructions from the Omarchy workspace, preserving file priority,
+  inherited AGENTS rules, subagent context, and the context-file listing. Prevent
+  nonexistent Linux paths from loading Hermes's own developer instructions on
+  the remote host. Keep the profile's SOUL, memory, and skills on the host.
+- Show activity emojis for skills, browser actions, terminal commands, and other
+  tools in the local TUI, including prepared, running, and completed calls.
+  Preserve connector icons and delegation controls in resumed conversations.
+- Include the renderer source patch and verify its checksum in reproducible builds.
+
 ## 0.4.3 — 2026-10-09
 
 This release includes the changes recorded under 0.4.1 and 0.4.2 below; those

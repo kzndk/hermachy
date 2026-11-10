@@ -28,6 +28,8 @@ def read_manifest(path: Path) -> dict:
     for key in ("revision", "patched_tree"):
         if not re.fullmatch(r"[0-9a-f]{40}", manifest[key]):
             raise ValueError(f"Invalid {key} in compatibility manifest")
+    if "release" in manifest and not re.fullmatch(r"v[0-9]+\.[0-9]+\.[0-9]+", manifest["release"]):
+        raise ValueError("Invalid release tag in compatibility manifest")
     patch = path.with_name("safe-executor-v2.patch")
     if hashlib.sha256(patch.read_bytes()).hexdigest() != manifest["patch_sha256"]:
         raise ValueError("Compatibility patch checksum mismatch")
@@ -39,6 +41,8 @@ def verify_source(destination: Path, manifest: dict) -> None:
         raise ValueError("Destination must be the Hermes checkout root")
     if git(destination, "rev-parse", "HEAD") != manifest["revision"]:
         raise ValueError("Hermes revision differs from the compatibility manifest")
+    if "release" in manifest and git(destination, "rev-parse", manifest["release"] + "^{}") != manifest["revision"]:
+        raise ValueError("Hermes release tag differs from the pinned revision")
     if git(destination, "write-tree") != manifest["patched_tree"]:
         raise ValueError("Hermes patch differs from the compatibility manifest")
     # The patch stays staged. Check both the index above and working files here.
@@ -56,8 +60,11 @@ def prepare(destination: Path, manifest_path: Path = MANIFEST) -> None:
     git(destination, "init", "--quiet")
     git(destination, "remote", "add", "origin", manifest["repository"])
     print(f"Fetching Hermes {manifest['revision']}…", flush=True)
-    git(destination, "-c", "credential.helper=", "fetch", "--depth=1", "origin", manifest["revision"])
-    git(destination, "checkout", "--detach", "FETCH_HEAD")
+    refs = [manifest["revision"]]
+    if "release" in manifest:
+        refs.append(f"refs/tags/{manifest['release']}:refs/tags/{manifest['release']}")
+    git(destination, "-c", "credential.helper=", "fetch", "--depth=1", "origin", *refs)
+    git(destination, "checkout", "--detach", manifest["revision"])
     patch = str(manifest_path.with_name("safe-executor-v2.patch").resolve())
     git(destination, "apply", "--index", "--check", patch)
     git(destination, "apply", "--index", patch)

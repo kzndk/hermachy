@@ -1,10 +1,12 @@
 {
-  "hermachy": "336b10feba08336ed01d9d5b58e8b6190da3db0b3b9b1fa2c573a5b429b44af4",
-  "hermachy-server": "43fdbed9c7feb32c17817dffb157acca028fb86d15d13da921730accf9bd1b57",
-  "hermachy-admin": "a1637675e91c7e9fef327fabc6dcac757d25a568c99215c603e89a9f59d6b315",
-  "hermachy-gateway": "f0f6240a7f8f9db33813ef739f301cb3372600992a07b4850671cbd4a2f9759d",
-  "hermachy-exec": "9b3e92e0f055128f7241665490bbb28f614ae08d47f44101f654dae9b943a1c2",
+  "hermachy": "7ac5fbd868ec4b459f0a647bde5c6d27c4cd6e0dc1a5f84d0e3832f832e20617",
+  "hermachy-server": "a2e76942a2c850d452d9ea151f1f025a419ab543d5d93437a047fe017a8b5f04",
+  "hermachy-admin": "bbd37b35acb933761bb491989c1dd90bbf6b6d400b3db386bc37906f3f37c460",
+  "hermachy-gateway": "4f066fe44e1a97f85af9b21672d3af560482e84f7cd83a3c5f9ea79fda230264",
+  "hermachy-exec": "b30948cb3197ba4bb90f4478ee59a2eb3d8db6afc0f96ccaef83e5905846be65",
   "tui/LICENSE": "821556e6336796450ab852d375117b48a4887e71d255794fd6318d99982a5ab6",
-  "tui/PROVENANCE.json": "728da687fc528899b52a98b85829ddd6b00a25a6f33e5acac9bace611130dde5",
-  "tui/entry.mjs": "f535c8ac5384b9c4a742e15cbfb847e30433f26541818f2738905b0290f78f6e"
+  "tui/PROVENANCE.json": "6c1df2e4a24a442e6f5b6cbee6264f17b93bd2df94dd6bae05f77008dde61416",
+  "tui/activity-emojis.patch": "1a83d47a1c0029baf661a224962e2283f5cf82f8976ca182ba236f4096aef4bc",
+  "tui/entry.mjs": "e1d6fb851fb83058f999710373c65f81782e323e1e86788b73ff24aa350d7c80",
+  "tui/omarchy-theme.patch": "29d1d2aa6ab6567fe28e4512de41ff562a042057e2c7540c90b04da56537e89d"
 }

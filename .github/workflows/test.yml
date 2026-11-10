@@ -46,23 +46,29 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.14"
       - name: Prepare pinned Hermes from public source
         run: python compat/hermes/prepare.py "$RUNNER_TEMP/hermes-compatible"
       - name: Install locked runtime and test dependencies
         working-directory: ${{ runner.temp }}/hermes-compatible
         run: |
-          python -m pip install 'uv==0.12.13'
-          UV_PROJECT_ENVIRONMENT=venv uv sync --locked --python 3.11 --extra dev
+          HERMES_HOME="$RUNNER_TEMP/hermes-build-profile" \
+          HERMES_RUNTIME_DIR="$RUNNER_TEMP/hermes-build-tools" \
+            python -m pm.build_env --source . --out venv --group dev --group test
       - name: Probe the installed capability
         working-directory: ${{ runner.temp }}/hermes-compatible
         run: |
           HERMES_HOME="$RUNNER_TEMP/hermes-profile" venv/bin/python -c 'from tools.environments.ssh import HERMACHY_CONTROL_VERSION; assert HERMACHY_CONTROL_VERSION == "2"; print("Hermachy safe-executor v2: OK")'
+      - name: Test Hermachy prompt integration with pinned Hermes
+        run: |
+          PYTHONPATH="$GITHUB_WORKSPACE/src:$RUNNER_TEMP/hermes-compatible" \
+            "$RUNNER_TEMP/hermes-compatible/venv/bin/python" \
+            -m unittest discover -s tests/integration -v
       - name: Run Hermes contract and gateway regression tests
         working-directory: ${{ runner.temp }}/hermes-compatible
         run: |
           ulimit -n 4096
-          scripts/run_tests.sh -j 4 \
+          HERMES_PYTHON="$PWD/venv/bin/python" scripts/run_tests.sh -j 4 \
             tests/hermes_cli/test_hermachy_safe_executor.py \
             tests/tools/test_hermachy_safe_executor_ssh.py \
             tests/tools/test_hermachy_surface_propagation.py \
@@ -74,7 +80,11 @@ jobs:
             tests/hermes_cli/test_config_env_expansion.py \
             tests/tools/test_terminal_env_bridge.py \
             tests/tools/test_file_tools_container_config.py \
-            tests/tools/test_lazy_deps.py \
+            tests/pm/test_hermachy_install_policy.py \
+            tests/pm/test_lazy_install_policy.py \
+            tests/tui_gateway/test_hermachy_boundary.py \
+            tests/tui_gateway/test_hermachy_eof_shutdown.py \
+            tests/tui_gateway/contracts/test_generated.py \
             tests/tui_gateway/test_protocol.py \
             tests/tui_gateway/test_tui_gateway_server.py \
             tests/agent/test_prompt_builder.py

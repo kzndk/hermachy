@@ -23,7 +23,7 @@ def build_release(output: Path, manifest: Path, *, check: bool = False) -> Path:
     artifacts = build_all(output)
     files = {item.name: item for item in artifacts}
     files.update({"tui/" + item.name: item for item in sorted((output / "tui").iterdir())
-                  if item.name in {"entry.mjs", "LICENSE", "PROVENANCE.json"}})
+                  if item.name in {"entry.mjs", "LICENSE", "PROVENANCE.json", "activity-emojis.patch", "omarchy-theme.patch"}})
     hashes = {name: hashlib.sha256(item.read_bytes()).hexdigest()
               for name, item in files.items()}
     if check:

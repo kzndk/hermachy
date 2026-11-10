@@ -6,6 +6,8 @@ import platform
 from pathlib import Path
 import shlex
 import sys
+import tempfile
+from types import SimpleNamespace
 import uuid
 from unittest import mock
 
@@ -13,6 +15,7 @@ parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("--archive", default=str(Path("~/.local/bin/hermachy-server").expanduser()))
 parser.add_argument("--cwd", required=True, help="Existing absolute Omarchy workspace")
 parser.add_argument("--access", action="store_true", help="Check desktop, file/code tools and uncertain-write handling using temporary files")
+parser.add_argument("--context-cwd", help="Existing Omarchy project with instruction files for a read-only prompt check")
 args = parser.parse_args()
 sys.path.insert(0, args.archive)
 from hermachy.server import load_server_config, build_hermes_env, _server_config_path
@@ -82,6 +85,37 @@ if args.access:
         ))
         assert "HERMACHY_ACCESS_OK" in json.dumps(result), result
         print("Native write/read/patch/code tools reached Omarchy", flush=True)
+
+        # Exercise Hermes's real 0.22 callers, not only Hermachy's prompt hook.
+        from agent.runtime_cwd import set_session_cwd, reset_session_cwd
+        from agent.system_prompt import build_system_prompt
+        from agent.context_file_sources import context_file_sources_for_agent
+        context_cwd = args.context_cwd or args.cwd
+        with tempfile.TemporaryDirectory(prefix="hermachy-prompt-profile-") as profile:
+            agent = SimpleNamespace(
+                load_soul_identity=False, skip_context_files=False, valid_tool_names=set(),
+                _task_completion_guidance=False, _tool_use_enforcement=False,
+                _environment_probe=False, _kanban_worker_guidance="", _memory_store=None,
+                _memory_manager=None, model="", provider="", platform="tui",
+                pass_session_id=False, session_id="",
+                _session_db=SimpleNamespace(db_path=profile + "/state.db"),
+                _emit_diagnostic_status=lambda *_args, **_kwargs: None,
+            )
+            for launch_artifact in (False, True):
+                agent._context_cwd_is_launch_artifact = launch_artifact
+                token = set_session_cwd("/host/launch-artifact" if launch_artifact else context_cwd)
+                try:
+                    with mock.patch.dict(os.environ, {"TERMINAL_CWD": context_cwd}):
+                        prompt = build_system_prompt(agent)
+                        sources = context_file_sources_for_agent(agent)
+                        loaded = [item for item in sources if item["loaded"]]
+                        if args.context_cwd:
+                            assert loaded, "No project instructions loaded from the supplied context workspace"
+                        if loaded:
+                            assert "# Project Context" in prompt and any(item["label"] in prompt for item in loaded)
+                finally:
+                    reset_session_cwd(token)
+        print("Hermes prompt assembly and context listing loaded Omarchy instructions with both cwd policies", flush=True)
 
         environment = get_active_env(task)
         once_path = directory + "/once.txt"

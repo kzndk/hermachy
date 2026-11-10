@@ -132,6 +132,8 @@ def install():
         ssh.SSHEnvironment = workstation_environment(ssh.SSHEnvironment)
     from .workstation_paths import install as install_workstation_paths
     install_workstation_paths()
+    from .workspace_context import install as install_workspace_context
+    install_workspace_context()
     # Extend the existing core terminal schema so routing is visible on every
     # turn, including when Hermes defers extension tools behind tool_search.
     from tools import terminal_tool as terminal

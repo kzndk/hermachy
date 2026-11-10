@@ -51,7 +51,7 @@ The complete setup guide covers prerequisites, Tailscale/SSH preparation, the tw
 Quick outline:
 
 1. Install Tailscale, OpenSSH, Git, Python 3.9+, and Node.js on Omarchy.
-2. [Install the pinned Hermes runtime](compat/hermes/README.md) and configure it on the remote host (Hermes uses Python 3.11).
+2. [Install the pinned Hermes runtime](compat/hermes/README.md) and configure it on the remote host (Hermes uses Python 3.14).
 3. Build or download Hermachy’s five standalone zipapps and bundled native TUI.
 4. Run `hermachy-admin studio-prepare` on the remote host.
 5. Run `hermachy-admin omarchy-install` on Omarchy.
@@ -60,12 +60,11 @@ Quick outline:
 
 ## Build
 
-Version **0.4.3** includes desktop session access, graphical administration,
-connection recovery, and explicit execution targets. See [release notes](CHANGELOG.md).
+Version **0.5.2** updates the runtime and native TUI to Hermes **0.22.2**,
+with Omarchy themes, project instructions, and explicit execution targets. See [release notes](CHANGELOG.md).
 
 ```bash
-git clone --branch v0.4.3 --depth 1 https://github.com/kzndk/hermachy.git
-cd hermachy
+# From this 0.5.2 source checkout:
 python3 scripts/build_zipapps.py
 ```
 
@@ -85,17 +84,26 @@ Python 3.9 or newer is required. The Omarchy client also requires Node.js.
 The build verifies the bundled renderer and parser against `tui/PROVENANCE.json`.
 
 The renderer and parser are vendored from Hermes
-[`f97608f178d1ffeca59860195ab7da295f7c8e5f`](https://github.com/NousResearch/hermes-agent/commit/f97608f178d1ffeca59860195ab7da295f7c8e5f)
-(Hermes 0.21.5, release `v2026.9.24`). The renderer is built with the upstream lockfile and
-`npm run build --workspace ui-tui`; `hermes_cli/_parser.py` is copied verbatim.
+[`d923a5eb487a17c0a68801bba9ef0f56c81040a8`](https://github.com/NousResearch/hermes-agent/commit/d923a5eb487a17c0a68801bba9ef0f56c81040a8)
+(Hermes 0.22.2, release `v0.22.2`). The renderer includes Hermachy's
+[activity emoji patch](tui/activity-emojis.patch), which adds the familiar tool icons
+to skill, browser, terminal, and other activity labels. Gateway-supplied connector
+labels keep their own icons. The [Omarchy theme patch](tui/omarchy-theme.patch)
+makes the local renderer follow the workstation's active palette. To rebuild,
+apply both patches to that Hermes revision with
+`git apply /path/to/hermachy/tui/activity-emojis.patch /path/to/hermachy/tui/omarchy-theme.patch`,
+install dependencies with the upstream lockfile (`npm ci`), and run
+`npm run build --workspace ui-tui`.
+Copy `ui-tui/dist/entry.js` to Hermachy's `tui/entry.mjs` and refresh its SHA-256 in
+`tui/PROVENANCE.json`. Both patch checksums are also recorded and checked at build time.
+`hermes_cli/_parser.py` is copied verbatim.
 The renderer, parser, and safe-executor runtime now use the same release. The
 standalone client adapts the parser’s config-path help to describe the remote
 profile. Upgrade both endpoints and the runtime together using the pinned recipe.
 
-The [0.4.3 release](https://github.com/kzndk/hermachy/releases/tag/v0.4.3)
-provides `hermachy-0.4.3.tar.gz` with all five executables, the required `tui/`
+The local build produces `hermachy-0.5.2.tar.gz` with all five executables, the required `tui/`
 assets, and the Hermes compatibility patch, installer, manifest, and setup docs.
-For downloaded bundles, obtain the matching `SHA256SUMS`, verify it with
+Transfer its matching `SHA256SUMS`, verify it with
 `sha256sum -c SHA256SUMS` on Linux or `shasum -a 256 -c SHA256SUMS` on macOS, then
 follow the [archive installation steps](docs/OMARCHY_REMOTE_HERMES.md#5-prepare-the-hermachy-release-directory).
 Keep the executables and `tui/` together until the installer copies them into
@@ -112,8 +120,8 @@ Maintainers run it without `--check` after changing the Python runtime to refres
 `dist/release/`.
 
 The archive is deterministic for the same source tree. A later commit can
-produce a different archive with the same version label; use the source at
-tag `v0.4.3` when reproducing this release.
+produce a different archive with the same version label; keep the matching
+source and checksums. Version 0.5.2 has not been published as a GitHub release.
 
 ## Use
 
@@ -130,6 +138,7 @@ Common session commands:
 
 ```bash
 hermachy --doctor
+hermachy --native                  # native terminal scrollback
 hermachy --continue
 hermachy --continue "session name"
 hermachy --resume "session-id-or-title"
@@ -137,6 +146,26 @@ hermachy --cwd /absolute/omarchy/path
 ```
 
 The native TUI renders locally; the remote Hermes gateway owns the agent and sessions. The supplied Omarchy directory is the execution working directory. Startup checks the remote runtime and executor before launching the renderer.
+
+Project instructions (`.hermes.md`, inherited `AGENTS.md`, `CLAUDE.md`, and
+Cursor rules) are read from that Omarchy workspace, including for subagents.
+They use Hermes's normal priority, scanning, and size limits. A missing workspace
+or connection never falls back to the Hermes installation's developer guide.
+`SOUL.md`, memory, and skills continue to come from the remote Hermes profile.
+After upgrading, reopen Hermachy and start a new chat to rebuild the prompt;
+existing conversations keep their cached instructions.
+
+Tool activity shows emojis such as 📚 for skills, 🌐 for browser navigation,
+💻 for terminal commands, and 🔍 for web searches. They appear while a call is
+being prepared, while it runs, and in its completed activity row. Reopen Hermachy
+after a renderer upgrade to load the updated display.
+
+Hermachy follows Omarchy's active colors at launch and while running. Changing
+the desktop theme updates the TUI within a second, preserving the current chat
+and input. It reads `$XDG_STATE_HOME/omarchy/current/theme/colors.toml`
+(normally `~/.local/state/omarchy/current/theme/colors.toml`); remote skins retain
+their branding while the local palette supplies the colors. Without an Omarchy
+palette, the normal Hermes skin applies.
 
 ### Connection recovery and execution targets
 
@@ -162,7 +191,7 @@ transport recovery does not replay commands into a replacement agent. An
 interrupted Omarchy execution SSH connection can leave a command's outcome
 uncertain; the agent must inspect its result before retrying it. Execution
 exceptions do not enter Hermes's automatic command retry loop. Upgrade both
-Hermachy endpoints together to 0.4.3 and use the matching Hermes runtime.
+Hermachy endpoints together to 0.5.2 and use the matching Hermes runtime.
 
 ### Desktop and system access
 
@@ -191,8 +220,8 @@ the new entry point.
 
 ## Hermes compatibility
 
-The supported recipe is Hermes **0.21.5** ([stable release `v2026.9.24`](https://github.com/NousResearch/hermes-agent/releases/tag/v2026.9.24)),
-[`f97608f178d1ffeca59860195ab7da295f7c8e5f`](https://github.com/NousResearch/hermes-agent/commit/f97608f178d1ffeca59860195ab7da295f7c8e5f)
+The supported recipe is Hermes **0.22.2** ([stable release `v0.22.2`](https://github.com/NousResearch/hermes-agent/releases/tag/v0.22.2)),
+[`d923a5eb487a17c0a68801bba9ef0f56c81040a8`](https://github.com/NousResearch/hermes-agent/commit/d923a5eb487a17c0a68801bba9ef0f56c81040a8)
 with the bundled [safe-executor v2 patch](compat/hermes/safe-executor-v2.patch).
 The [compatibility manifest](compat/hermes/manifest.json) pins the patch SHA-256
 and resulting Git tree. No private fork is required.
@@ -200,7 +229,7 @@ and resulting Git tree. No private fork is required.
 On the remote host, from this checkout, start with:
 
 ```bash
-python3 compat/hermes/prepare.py "$HOME/.local/share/hermachy/hermes-safe-executor-v2"
+python3 compat/hermes/prepare.py "$HOME/.local/share/hermachy/hermes-v0.22.2"
 ```
 
 Then follow the [runtime installation steps](compat/hermes/README.md) to install

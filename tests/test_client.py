@@ -16,8 +16,9 @@ from hermachy.client import (
     parse_args,
     check_remote,
     resolve_session,
+    prepare_local_ui,
 )
-from hermachy.protocol import decode_request
+from hermachy.protocol import LaunchRequest, decode_request
 
 
 class ClientTests(unittest.TestCase):
@@ -113,9 +114,29 @@ class ClientTests(unittest.TestCase):
                 request = build_request(parse_args(argv), cwd)
                 self.assertEqual((request.action, request.session), expected)
 
+    def test_native_scrollback_flag_reaches_local_renderer(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            entry, gateway = root / "entry.mjs", root / "hermachy-gateway"
+            entry.touch()
+            gateway.touch()
+            config = ClientConfig("host", "user", root / "key")
+            with mock.patch.dict(os.environ, {"HOME": directory, "HERMES_TUI_NATIVE": "1"}), mock.patch(
+                "hermachy.client.ui_paths", return_value=(entry, gateway)
+            ), mock.patch("hermachy.client.shutil.which", return_value="/usr/bin/node"):
+                for argv, expected in (([], "0"), (["--native"], "1"), (["chat", "--tui-native"], "1")):
+                    with self.subTest(argv=argv):
+                        _, env = prepare_local_ui(parse_args(argv), config, LaunchRequest(directory, "gateway"))
+                        self.assertEqual(env["HERMES_TUI_NATIVE"], expected)
+
     def test_mutually_exclusive_actions(self) -> None:
         with self.assertRaises(SystemExit):
             parse_args(["--continue", "--resume", "id"])
+
+    def test_unknown_command_does_not_require_a_local_hermes_install(self) -> None:
+        with self.assertRaises(SystemExit) as error:
+            parse_args(["chta"])
+        self.assertEqual(error.exception.code, 2)
 
     def test_cwd_override_is_resolved_and_must_be_directory(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

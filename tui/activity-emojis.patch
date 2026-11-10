@@ -1,0 +1,160 @@
+diff --git a/ui-tui/src/__tests__/text.test.ts b/ui-tui/src/__tests__/text.test.ts
+index e566871c8b33e77a76fabb0330bca6102d8834a4..c1cb47359b27669dc66ad934f49b654f0159a571 100644
+--- a/ui-tui/src/__tests__/text.test.ts
++++ b/ui-tui/src/__tests__/text.test.ts
+@@ -7,6 +7,7 @@ import {
+   buildVerboseToolTrailLine,
+   edgePreview,
+   estimateRows,
++  formatToolCall,
+   isToolTrailResultLine,
+   lastCotTrailIndex,
+   parseToolTrailResultLine,
+@@ -28,9 +29,11 @@ describe('buildToolTrailLine', () => {
+   it('puts completion duration inline before the result marker', () => {
+     const line = buildToolTrailLine('read_file', 'x', false, '', 0.94)
+ 
+-    expect(line).toBe('Read File("x") (0.9s) ✓')
+-    expect(parseToolTrailResultLine(line)).toEqual({ call: 'Read File("x") (0.9s)', detail: '', mark: '✓' })
+-    expect(splitToolDuration('Read File("x") (0.9s)')).toEqual({ label: 'Read File("x")', duration: ' (0.9s)' })
++    const call = formatToolCall('read_file', 'x')
++
++    expect(line).toBe(`${call} (0.9s) ✓`)
++    expect(parseToolTrailResultLine(line)).toEqual({ call: `${call} (0.9s)`, detail: '', mark: '✓' })
++    expect(splitToolDuration(`${call} (0.9s)`)).toEqual({ label: call, duration: ' (0.9s)' })
+   })
+ })
+ 
+@@ -48,7 +51,7 @@ describe('buildVerboseToolTrailLine', () => {
+     expect(line).toContain(`${t('libText.text.argsLabel')}:\n{`)
+     expect(line).toContain(`${t('libText.text.resultLabel')}:\nfirst line\nsecond :: line`)
+     expect(parseToolTrailResultLine(line)).toEqual({
+-      call: 'Terminal("npm test") (1.3s)',
++      call: `${formatToolCall('terminal', 'npm test')} (1.3s)`,
+       detail: 'Args:\n{\n  "cmd": "npm test"\n}\nResult:\nfirst line\nsecond :: line',
+       mark: '✓'
+     })
+@@ -60,7 +63,7 @@ describe('buildVerboseToolTrailLine', () => {
+     expect(line).toContain('Error:\ncommand failed')
+     expect(line).not.toContain('Result:\ncommand failed')
+     expect(parseToolTrailResultLine(line)).toEqual({
+-      call: 'Terminal("npm test") (0.5s)',
++      call: `${formatToolCall('terminal', 'npm test')} (0.5s)`,
+       detail: 'Error:\ncommand failed',
+       mark: '✗'
+     })
+diff --git a/ui-tui/src/components/thinking.tsx b/ui-tui/src/components/thinking.tsx
+index e6c1cac555b6a8ad8f6064301556909a60c04e5f..ab2224480938c504f58186abe0261ca850da467e 100644
+--- a/ui-tui/src/components/thinking.tsx
++++ b/ui-tui/src/components/thinking.tsx
+@@ -42,6 +42,10 @@ import type {
+ const THINK: BrailleSpinnerName[] = ['helix', 'breathe', 'orbit', 'dna', 'waverows', 'snake', 'pulse']
+ const TOOL: BrailleSpinnerName[] = ['cascade', 'scan', 'diagswipe', 'fillsweep', 'rain', 'columns', 'sparkle']
+ 
++// Resumed transcripts can contain tool labels from before activity emojis.
++const isDelegateLabel = (label: string) =>
++  label.startsWith(toolTrailLabel('delegate_task')) || label.startsWith('Delegate Task')
++
+ const fmtElapsed = (ms: number) => {
+   const sec = Math.max(0, ms) / 1000
+ 
+@@ -948,7 +952,7 @@ export const ToolTrail = memo(function ToolTrail({
+     toolTokens !== undefined && toolTokens > 0 ? T.approxTokens(compactNumber(toolTokens)) : undefined
+ 
+   const totalTokensLabel = tokenCount > 0 && toolTokenCount > 0 ? T.approxTotal(compactNumber(totalTokenCount)) : null
+-  const delegateGroups = groups.filter(g => g.label.startsWith('Delegate Task'))
++  const delegateGroups = groups.filter(g => isDelegateLabel(g.label))
+   const inlineDelegateKey = hasSubagents && delegateGroups.length === 1 ? delegateGroups[0]!.key : null
+ 
+   const toolLabel = (group: Group) => {
+@@ -1126,7 +1130,7 @@ export const ToolTrail = memo(function ToolTrail({
+             // Surface the /agents hint the moment a delegate group appears —
+             // while it's still in-flight and before any subagent has
+             // registered — so users can open the live monitor immediately.
+-            const isDelegateGroup = group.label.startsWith('Delegate Task')
++            const isDelegateGroup = isDelegateLabel(group.label)
+ 
+             return (
+               <Box flexDirection="column" key={group.key}>
+diff --git a/ui-tui/src/content/toolEmojis.ts b/ui-tui/src/content/toolEmojis.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..19b1fc5c512285344de9468707de67d9f39422f1
+--- /dev/null
++++ b/ui-tui/src/content/toolEmojis.ts
+@@ -0,0 +1,41 @@
++// Match the pinned Hermes registry for calls without gateway-supplied labels.
++const TOOL_EMOJIS = new Map([
++  ['browser_back', '◀️'],
++  ['browser_click', '👆'],
++  ['browser_console', '🖥️'],
++  ['browser_get_images', '🖼️'],
++  ['browser_press', '⌨️'],
++  ['browser_scroll', '📜'],
++  ['browser_snapshot', '📸'],
++  ['browser_type', '⌨️'],
++  ['browser_vision', '👁️'],
++  ['clarify', '❓'],
++  ['cronjob', '⏰'],
++  ['delegate_task', '🔀'],
++  ['execute_code', '🐍'],
++  ['image_generate', '🎨'],
++  ['memory', '🧠'],
++  ['patch', '🔧'],
++  ['process', '⚙️'],
++  ['read_file', '📖'],
++  ['search_files', '🔎'],
++  ['skill_manage', '📝'],
++  ['terminal', '💻'],
++  ['todo', '📋'],
++  ['tool_describe', '📖'],
++  ['tool_search', '🔎'],
++  ['vision_analyze', '👁️'],
++  ['web_extract', '📄'],
++  ['web_search', '🔍'],
++  ['write_file', '✍️']
++])
++
++const TOOL_FAMILY_EMOJIS = [
++  ['browser_', '🌐'],
++  ['skill_', '📚'],
++  ['skills_', '📚'],
++  ['mcp_', '🔌']
++] as const
++
++export const toolEmoji = (name: string): string =>
++  TOOL_EMOJIS.get(name) ?? TOOL_FAMILY_EMOJIS.find(([prefix]) => name.startsWith(prefix))?.[1] ?? '⚡'
+diff --git a/ui-tui/src/lib/text.ts b/ui-tui/src/lib/text.ts
+index 9197a7e7e5cdd7d22e53d687320fc345c7c1e5a0..c5eb3d80f187b0747da945bcad468532786c5924 100644
+--- a/ui-tui/src/lib/text.ts
++++ b/ui-tui/src/lib/text.ts
+@@ -9,6 +9,7 @@ import {
+   VERBOSE_TRAIL_MAX_CHARS,
+   VERBOSE_TRAIL_MAX_LINES
+ } from '../config/limits.js'
++import { toolEmoji } from '../content/toolEmojis.js'
+ import { VERBS } from '../content/verbs.js'
+ import { t } from '../i18n/runtime.js'
+ import type { ThinkingMode } from '../types.js'
+@@ -167,12 +168,16 @@ const countNewlines = (text: string, end: number) => {
+ 
+ export const stripTrailingPasteNewlines = (text: string) => (/[^\n]/.test(text) ? text.replace(/\n+$/, '') : text)
+ 
+-export const toolTrailLabel = (name: string) =>
+-  name
+-    .split('_')
+-    .filter(Boolean)
+-    .map(p => p[0]!.toUpperCase() + p.slice(1))
+-    .join(' ') || name
++export const toolTrailLabel = (name: string) => {
++  const label =
++    name
++      .split('_')
++      .filter(Boolean)
++      .map(p => p[0]!.toUpperCase() + p.slice(1))
++      .join(' ') || name
++
++  return `${toolEmoji(name)} ${label}`
++}
+ 
+ export const formatToolCall = (name: string, context = '') => {
+   const label = toolTrailLabel(name)

@@ -127,6 +127,8 @@ def parser() -> argparse.ArgumentParser:
     # Upstream now resolves its help text through hermes_constants. The local
     # zipapp has no Hermes installation; configuration belongs to the host.
     hermes_parser._cfg_path = lambda: "the remote default profile's config.yaml"
+    # Migration hints belong to the remote Hermes installation, not this zipapp.
+    hermes_parser._moved_command_hint = lambda _prog, _value: ""
     result, _, chat = hermes_parser.build_top_level_parser()
     result.prog = "hermachy"
     result.description = "Local Hermes TUI · persistent connection · Omarchy and Hermes execution"
@@ -260,6 +262,7 @@ def prepare_local_ui(args: argparse.Namespace, config: ClientConfig,
                HERMES_PYTHON=str(gateway), HERMES_PYTHON_SRC_ROOT=str(entry.parent),
                NODE_ENV="production", HERMACHY_REQUEST=encode_request(request),
                HERMACHY_CLIENT_CONFIG=str(_config_path().resolve()))
+    env["HERMES_TUI_NATIVE"] = "1" if args.tui_native else "0"
     reasoning = getattr(args, "reasoning", None)
     if reasoning:
         if reasoning not in {"none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"}:

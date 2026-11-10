@@ -202,10 +202,15 @@ def main(argv: list[str] | None = None) -> int:
         group = parser.add_mutually_exclusive_group(required=True)
         group.add_argument("--version", action="store_true")
         group.add_argument("--doctor", action="store_true")
+        group.add_argument("--context-files", metavar="WORKSPACE", help="Read project instructions on this workstation")
         group.add_argument("--admin", nargs=argparse.REMAINDER, metavar="COMMAND")
         parsed = parser.parse_args(args)
         if parsed.version:
             print(f"Hermachy executor {__version__} (desktop access v{EXECUTOR_VERSION})")
+            return 0
+        if parsed.context_files is not None:
+            from .context_files import collect_context_files
+            print(json.dumps(collect_context_files(parsed.context_files), ensure_ascii=False))
             return 0
         env = desktop_environment()
         if parsed.doctor:

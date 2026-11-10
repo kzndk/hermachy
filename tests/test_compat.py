@@ -25,11 +25,13 @@ class CompatibilityPreparationTests(unittest.TestCase):
         git(origin, "-c", "user.name=Test", "-c", "user.email=test@example.invalid",
             "-c", "commit.gpgsign=false", "commit", "--quiet", "-m", "base")
         revision = git(origin, "rev-parse", "HEAD")
+        git(origin, "tag", "v0.22.0", revision)
         (origin / "runtime.txt").write_text("compatible\n")
         git(origin, "add", "runtime.txt")
         patch = (git(origin, "diff", "--cached", "--full-index") + "\n").encode()
         self.manifest = {
             "repository": str(origin), "revision": revision,
+            "release": "v0.22.0",
             "patched_tree": git(origin, "write-tree"),
             "patch_sha256": hashlib.sha256(patch).hexdigest(),
         }
@@ -68,6 +70,12 @@ class CompatibilityPreparationTests(unittest.TestCase):
         self.manifest["patched_tree"] = git(Path(self.manifest["repository"]), "rev-parse", "HEAD^{tree}")
         self.manifest_path.write_text(json.dumps(self.manifest))
         with self.assertRaisesRegex(ValueError, "patch differs"):
+            prepare(self.destination, self.manifest_path)
+
+    def test_release_tag_must_identify_the_pinned_commit(self):
+        origin = Path(self.manifest["repository"])
+        git(origin, "tag", "--force", "v0.22.0", "HEAD^{tree}")
+        with self.assertRaisesRegex(ValueError, "release tag differs"):
             prepare(self.destination, self.manifest_path)
 
     def test_wrong_revision_and_extra_files_are_rejected(self):

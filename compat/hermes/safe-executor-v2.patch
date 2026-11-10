@@ -1,24 +1,152 @@
 diff --git a/gateway/run.py b/gateway/run.py
-index 20071c3164431470ead5a8b3585779fc317d625c..9e5203a69196b31e6a757f67acd0b0af66bd9bb9 100644
+index a9e9855ec93fe47b35861f90368091925816eda8..302109204ed3d1487a4310234ab3aade44fc3e68 100644
 --- a/gateway/run.py
 +++ b/gateway/run.py
-@@ -2021,7 +2021,11 @@ def _bridge_terminal_config_to_env(_terminal_cfg: dict) -> None:
-         "docker_orphan_reaper": "TERMINAL_DOCKER_ORPHAN_REAPER",
-         "sandbox_dir": "TERMINAL_SANDBOX_DIR",
-         "persistent_shell": "TERMINAL_PERSISTENT_SHELL"}
+@@ -43,7 +43,8 @@ from agent.interrupt_compat import request_hard_interrupt
+ from agent.message_metadata import ABSORBED_MESSAGE_UIDS, MESSAGE_UID, copy_identity_fields
+ from agent.turn_context import compression_made_progress
+ from agent.session_activity import ActivityProvenance
+-from hermes_cli.config import _is_ssh_remote_tilde_cwd, cfg_get
++from hermes_cli.config import cfg_get
++from gateway.terminal_config import bridge_terminal_config_to_env as _bridge_terminal_config_to_env
+ from hermes_cli.fallback_config import pre_agent_fallback_notice
+ from gateway.turn_executor import _UnboundedThreadExecutor
+ 
+@@ -1978,60 +1979,6 @@ def _bridge_max_turns_to_env(agent_cfg: Any) -> None:
+         del os.environ["HERMES_MAX_ITERATIONS"]
+ 
+ 
+-def _bridge_terminal_config_to_env(_terminal_cfg: dict) -> None:
+-    """Bridge nested ``terminal.*`` config to TERMINAL_* env vars (config.yaml overrides .env here)."""
+-    _terminal_backend = str(
+-        _terminal_cfg.get("backend") or os.environ.get("TERMINAL_ENV") or "").strip().lower()
+-    _terminal_env_map = {
+-        "backend": "TERMINAL_ENV",
+-        "degraded_mode": "TERMINAL_DEGRADED_MODE",
+-        "cwd": "TERMINAL_CWD",
+-        "timeout": "TERMINAL_TIMEOUT",
+-        "home_mode": "TERMINAL_HOME_MODE",
+-        "lifetime_seconds": "TERMINAL_LIFETIME_SECONDS",
+-        "docker_image": "TERMINAL_DOCKER_IMAGE",
+-        "docker_forward_env": "TERMINAL_DOCKER_FORWARD_ENV",
+-        "singularity_image": "TERMINAL_SINGULARITY_IMAGE",
+-        "modal_image": "TERMINAL_MODAL_IMAGE",
+-        "daytona_image": "TERMINAL_DAYTONA_IMAGE",
+-        "vercel_runtime": "TERMINAL_VERCEL_RUNTIME",
+-        "vercel_image": "TERMINAL_VERCEL_IMAGE",
+-        "ssh_host": "TERMINAL_SSH_HOST",
+-        "ssh_user": "TERMINAL_SSH_USER",
+-        "ssh_port": "TERMINAL_SSH_PORT",
+-        "ssh_key": "TERMINAL_SSH_KEY",
+-        "container_cpu": "TERMINAL_CONTAINER_CPU",
+-        "container_memory": "TERMINAL_CONTAINER_MEMORY",
+-        "container_disk": "TERMINAL_CONTAINER_DISK",
+-        "container_persistent": "TERMINAL_CONTAINER_PERSISTENT",
+-        "docker_volumes": "TERMINAL_DOCKER_VOLUMES",
+-        "docker_env": "TERMINAL_DOCKER_ENV",
+-        "docker_extra_args": "TERMINAL_DOCKER_EXTRA_ARGS",
+-        "docker_shm_size": "TERMINAL_DOCKER_SHM_SIZE",
+-        "docker_mount_cwd_to_workspace": "TERMINAL_DOCKER_MOUNT_CWD_TO_WORKSPACE",
+-        "docker_network": "TERMINAL_DOCKER_NETWORK",
+-        "docker_run_as_host_user": "TERMINAL_DOCKER_RUN_AS_HOST_USER",
+-        "docker_snap_compat": "TERMINAL_DOCKER_SNAP_COMPAT",
+-        "docker_persist_across_processes": "TERMINAL_DOCKER_PERSIST_ACROSS_PROCESSES",
+-        "docker_shared_container_key": "TERMINAL_DOCKER_SHARED_CONTAINER_KEY",
+-        "docker_orphan_reaper": "TERMINAL_DOCKER_ORPHAN_REAPER",
+-        "sandbox_dir": "TERMINAL_SANDBOX_DIR",
+-        "persistent_shell": "TERMINAL_PERSISTENT_SHELL"}
+-    for _cfg_key, _env_var in _terminal_env_map.items():
+-        if _cfg_key not in _terminal_cfg:
+-            continue
+-        _val = _terminal_cfg[_cfg_key]
+-        if _cfg_key == "cwd":
+-            # Placeholders (".", "auto", "cwd") resolve to Path.home() later; only explicit paths bridge.
+-            if str(_val) in {".", "auto", "cwd"}:
+-                continue
+-            # Expand "~" for local/container cwd so Popen never gets a literal "~/" (kernel rejects it);
+-            # SSH cwd is interpreted by the remote shell: keep "~". Predicate shared w/ terminal_tool.
+-            if isinstance(_val, str) and not _is_ssh_remote_tilde_cwd(_terminal_backend, _val.strip()):
+-                _val = os.path.expanduser(_val)
+-        os.environ[_env_var] = json.dumps(_val) if isinstance(_val, (list, dict)) else str(_val)
+-
+-
+ def _bridge_auxiliary_config_to_env(_auxiliary_cfg: dict) -> None:
+     """Bridge auxiliary model/endpoint overrides (vision, approval, plugins); compression reads yaml."""
+     _aux_bridged_keys = {"vision", "approval"}
+diff --git a/gateway/terminal_config.py b/gateway/terminal_config.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..ed824d3313364a5650aa75a764d83ba290e14064
+--- /dev/null
++++ b/gateway/terminal_config.py
+@@ -0,0 +1,63 @@
++"""Bridge terminal settings while preserving a protected workstation route."""
++
++import json
++import os
++from hermes_cli.config import _is_ssh_remote_tilde_cwd
++
++
++def bridge_terminal_config_to_env(_terminal_cfg: dict) -> None:
++    """Bridge nested ``terminal.*`` config to TERMINAL_* env vars (config.yaml overrides .env here)."""
++    _terminal_backend = str(
++        _terminal_cfg.get("backend") or os.environ.get("TERMINAL_ENV") or "").strip().lower()
++    _terminal_env_map = {
++        "backend": "TERMINAL_ENV",
++        "degraded_mode": "TERMINAL_DEGRADED_MODE",
++        "cwd": "TERMINAL_CWD",
++        "timeout": "TERMINAL_TIMEOUT",
++        "home_mode": "TERMINAL_HOME_MODE",
++        "lifetime_seconds": "TERMINAL_LIFETIME_SECONDS",
++        "docker_image": "TERMINAL_DOCKER_IMAGE",
++        "docker_forward_env": "TERMINAL_DOCKER_FORWARD_ENV",
++        "singularity_image": "TERMINAL_SINGULARITY_IMAGE",
++        "modal_image": "TERMINAL_MODAL_IMAGE",
++        "daytona_image": "TERMINAL_DAYTONA_IMAGE",
++        "vercel_runtime": "TERMINAL_VERCEL_RUNTIME",
++        "vercel_image": "TERMINAL_VERCEL_IMAGE",
++        "ssh_host": "TERMINAL_SSH_HOST",
++        "ssh_user": "TERMINAL_SSH_USER",
++        "ssh_port": "TERMINAL_SSH_PORT",
++        "ssh_key": "TERMINAL_SSH_KEY",
++        "container_cpu": "TERMINAL_CONTAINER_CPU",
++        "container_memory": "TERMINAL_CONTAINER_MEMORY",
++        "container_disk": "TERMINAL_CONTAINER_DISK",
++        "container_persistent": "TERMINAL_CONTAINER_PERSISTENT",
++        "docker_volumes": "TERMINAL_DOCKER_VOLUMES",
++        "docker_env": "TERMINAL_DOCKER_ENV",
++        "docker_extra_args": "TERMINAL_DOCKER_EXTRA_ARGS",
++        "docker_shm_size": "TERMINAL_DOCKER_SHM_SIZE",
++        "docker_mount_cwd_to_workspace": "TERMINAL_DOCKER_MOUNT_CWD_TO_WORKSPACE",
++        "docker_network": "TERMINAL_DOCKER_NETWORK",
++        "docker_run_as_host_user": "TERMINAL_DOCKER_RUN_AS_HOST_USER",
++        "docker_snap_compat": "TERMINAL_DOCKER_SNAP_COMPAT",
++        "docker_persist_across_processes": "TERMINAL_DOCKER_PERSIST_ACROSS_PROCESSES",
++        "docker_shared_container_key": "TERMINAL_DOCKER_SHARED_CONTAINER_KEY",
++        "docker_orphan_reaper": "TERMINAL_DOCKER_ORPHAN_REAPER",
++        "sandbox_dir": "TERMINAL_SANDBOX_DIR",
++        "persistent_shell": "TERMINAL_PERSISTENT_SHELL"}
 +    from hermes_cli.safe_executor import PROTECTED_ENV_KEYS, is_hermachy_safe_executor_requested, validate_hermachy_safe_executor_env
 +    validate_hermachy_safe_executor_env()
-     for _cfg_key, _env_var in _terminal_env_map.items():
++    for _cfg_key, _env_var in _terminal_env_map.items():
 +        if is_hermachy_safe_executor_requested() and _env_var in PROTECTED_ENV_KEYS:
 +            continue
-         if _cfg_key not in _terminal_cfg:
-             continue
-         _val = _terminal_cfg[_cfg_key]
++        if _cfg_key not in _terminal_cfg:
++            continue
++        _val = _terminal_cfg[_cfg_key]
++        if _cfg_key == "cwd":
++            # Placeholders (".", "auto", "cwd") resolve to Path.home() later; only explicit paths bridge.
++            if str(_val) in {".", "auto", "cwd"}:
++                continue
++            # Expand "~" for local/container cwd so Popen never gets a literal "~/" (kernel rejects it);
++            # SSH cwd is interpreted by the remote shell: keep "~". Predicate shared w/ terminal_tool.
++            if isinstance(_val, str) and not _is_ssh_remote_tilde_cwd(_terminal_backend, _val.strip()):
++                _val = os.path.expanduser(_val)
++        os.environ[_env_var] = json.dumps(_val) if isinstance(_val, (list, dict)) else str(_val)
 diff --git a/hermes_cli/cli_config_load.py b/hermes_cli/cli_config_load.py
-index f9b368b4839ea022c284251e64001748df29dc5b..1043074150d9a370c92ab2775cf9ab7fe9f76605 100644
+index 688d58249b968e034920a1ae30499fd121aa3aba..cf54e27b13be4b1fdaa41d696d3793cb82ee5e73 100644
 --- a/hermes_cli/cli_config_load.py
 +++ b/hermes_cli/cli_config_load.py
-@@ -123,6 +123,11 @@ def _mirror_config_to_env(defaults, _file_has_terminal_config):
+@@ -122,6 +122,11 @@ def _mirror_config_to_env(defaults, _file_has_terminal_config):
      """Project config.yaml values into the env vars the tool modules read (terminal/browser/auxiliary/security/sessions). Env always wins when already set."""
      from cli import _AUXILIARY_TASK_ENV, _CWD_PLACEHOLDERS, _TERMINAL_ENV_MAPPINGS
      terminal_config = defaults.get("terminal", {})
@@ -31,10 +159,10 @@ index f9b368b4839ea022c284251e64001748df29dc5b..1043074150d9a370c92ab2775cf9ab7f
      # "backend" (documented) and legacy "env_type" are both accepted; "backend" wins.
      if "backend" in terminal_config:
 diff --git a/hermes_cli/config.py b/hermes_cli/config.py
-index 5450a88314c9920d461c4acd374d7eaad61c4522..a9fc30b46789183209f78e4f6f2b2676579ef0d6 100644
+index ca35d36c0267fab5ec0eb46f7ce5e782637a4e2b..570a264ef2c3561271e5e97a625b37ee4d83b6ef 100644
 --- a/hermes_cli/config.py
 +++ b/hermes_cli/config.py
-@@ -2117,6 +2117,10 @@ def apply_terminal_config_to_env(
+@@ -2156,6 +2156,10 @@ def apply_terminal_config_to_env(
      matching env values; merged defaults only backfill missing env vars."""
      target = os.environ if env is None else env
  
@@ -45,28 +173,65 @@ index 5450a88314c9920d461c4acd374d7eaad61c4522..a9fc30b46789183209f78e4f6f2b2676
      raw_terminal_cfg = read_raw_config().get("terminal")
      file_has_terminal_config = isinstance(raw_terminal_cfg, dict)
      raw_terminal_cfg = raw_terminal_cfg if file_has_terminal_config else {}
-@@ -2734,6 +2738,8 @@ def reload_env() -> int:
-     """Re-read ~/.hermes/.env into os.environ; returns count of vars changed.
-     Removes deleted vars only when known to Hermes (OPTIONAL_ENV_VARS and _EXTRA_ENV_KEYS) so
-     unrelated environment is never clobbered."""
+@@ -2850,20 +2854,9 @@ def save_env_value_secure(key: str, value: str) -> dict[str, Any]:
+ 
+ 
+ def reload_env() -> int:
+-    """Re-read ~/.hermes/.env into os.environ; returns count of vars changed.
+-    Removes deleted vars only when known to Hermes (OPTIONAL_ENV_VARS and _EXTRA_ENV_KEYS) so
+-    unrelated environment is never clobbered."""
+-    env_vars = load_env()
+-    count = 0
+-    for key, value in env_vars.items():
+-        if os.environ.get(key) != value:
+-            os.environ[key] = value
+-            count += 1
+-    for key in (set(OPTIONAL_ENV_VARS) | _EXTRA_ENV_KEYS) - set(env_vars):
+-        if key in os.environ:
+-            del os.environ[key]
+-            count += 1
+-    return count
++    """Re-read profile environment settings, preserving the protected executor route."""
++    from hermes_cli.config_env_routing import reload_env as reload_profile_env
++    return reload_profile_env()
+ 
+ 
+ def _scoped_environ_get(key: str) -> Optional[str]:
+diff --git a/hermes_cli/config_env_routing.py b/hermes_cli/config_env_routing.py
+index 8bbc6180b0210d5e5296fe0ad6bf7f8d08fecbf8..6f6ab25056fc8c47c1233a80e6c2e40c96781503 100644
+--- a/hermes_cli/config_env_routing.py
++++ b/hermes_cli/config_env_routing.py
+@@ -85,3 +85,25 @@ def read_env_setting(key: str) -> Optional[str]:
+             print(f"  (note: {key} is a stale top-level config.yaml copy; `hermes config set {key} <value>` "
+                   f"moves it to .env, `hermes config unset {key}` removes it)", file=sys.stderr)
+     return value
++
++
++def reload_env() -> int:
++    """Re-read ~/.hermes/.env into os.environ; returns count of vars changed.
++    Removes deleted vars only when known to Hermes (OPTIONAL_ENV_VARS and _EXTRA_ENV_KEYS) so
++    unrelated environment is never clobbered."""
++    import os
++    from hermes_cli.config import load_env, OPTIONAL_ENV_VARS, _EXTRA_ENV_KEYS
 +    from hermes_cli.safe_executor import capture_hermachy_safe_executor_env, restore_hermachy_safe_executor_env
 +    hermachy_snapshot = capture_hermachy_safe_executor_env()
-     env_vars = load_env()
-     count = 0
-     for key, value in env_vars.items():
-@@ -2744,6 +2750,7 @@ def reload_env() -> int:
-         if key in os.environ:
-             del os.environ[key]
-             count += 1
++    env_vars = load_env()
++    count = 0
++    for key, value in env_vars.items():
++        if os.environ.get(key) != value:
++            os.environ[key] = value
++            count += 1
++    for key in (set(OPTIONAL_ENV_VARS) | _EXTRA_ENV_KEYS) - set(env_vars):
++        if key in os.environ:
++            del os.environ[key]
++            count += 1
 +    restore_hermachy_safe_executor_env(hermachy_snapshot)
-     return count
- 
- 
++    return count
 diff --git a/hermes_cli/env_loader.py b/hermes_cli/env_loader.py
-index aa5c398d81c9bad467bb0bc04e4bf0cd5c2d88e4..57c9039bf128b43ddcf3a1ddd42088a4f457954c 100644
+index 7dc5b3b231bde233089cdc23bfd4980366df964a..3bf142c43824aeea88d4167ff3b55ecbde2e6d6f 100644
 --- a/hermes_cli/env_loader.py
 +++ b/hermes_cli/env_loader.py
-@@ -396,6 +396,8 @@ def load_hermes_dotenv(
+@@ -459,6 +459,8 @@ def load_hermes_dotenv(
  ) -> list[Path]:
      """Load Hermes env files: ``~/.hermes/.env`` overrides stale shell exports; project ``.env`` is a dev
      fallback that only fills gaps when the user env exists (and overrides shell vars when it does not)."""
@@ -75,7 +240,7 @@ index aa5c398d81c9bad467bb0bc04e4bf0cd5c2d88e4..57c9039bf128b43ddcf3a1ddd42088a4
      # Process home on purpose (never the per-turn override): a startup .env load must not follow a routed
      # profile — see the multiplex guard below.
      from hermes_constants import get_process_hermes_home
-@@ -471,6 +473,7 @@ def load_hermes_dotenv(
+@@ -543,6 +545,7 @@ def load_hermes_dotenv(
      if load_external_secrets and not _early_recovery._should_skip_external_secret_sources():
          _apply_external_secret_sources(home_path)
      _apply_managed_env(load_pass=load_pass)
@@ -270,11 +435,25 @@ index 0000000000000000000000000000000000000000..a694738606c0ac2b226fc7f9f6751911
 +        }
 +    )
 +    return result
+diff --git a/pm/install.py b/pm/install.py
+index 7b80909443385317272501c3a9dabb47b2315fda..b6d10e9458fc4de605b7c3651185281f7cc6e08a 100644
+--- a/pm/install.py
++++ b/pm/install.py
+@@ -172,6 +172,9 @@ def lazy_installs_allowed() -> bool:
+     """
+     import os
+ 
++    if os.environ.get("HERMACHY_REQUIRE_SAFE_EXECUTOR") == "1":
++        return False
++
+     if os.environ.get("HERMES_DISABLE_LAZY_INSTALLS", "").strip().lower() in (
+         "1",
+         "true",
 diff --git a/tests/agent/test_prompt_builder.py b/tests/agent/test_prompt_builder.py
-index fabf06bc42b70db3a58d490bec6a4b8d6daea5fb..e38094a0626dea1fa7b0926919ffaff62b243721 100644
+index c0097d1226acf3a3b0de942f063096d701e7ace4..e48e5cd2e1ce7c4672c52f8528a2b937f3c8e4e5 100644
 --- a/tests/agent/test_prompt_builder.py
 +++ b/tests/agent/test_prompt_builder.py
-@@ -997,3 +997,53 @@ class TestContextFileReadTimeout:
+@@ -1045,3 +1045,53 @@ class TestContextFileReadTimeout:
  
          with pytest.raises(FileNotFoundError):
              _read_text_with_timeout(tmp_path / "missing.md", timeout=1.0)
@@ -330,7 +509,7 @@ index fabf06bc42b70db3a58d490bec6a4b8d6daea5fb..e38094a0626dea1fa7b0926919ffaff6
 +    assert captured["cleaned"] is True
 diff --git a/tests/gateway/test_hermachy_executor_bridge.py b/tests/gateway/test_hermachy_executor_bridge.py
 new file mode 100644
-index 0000000000000000000000000000000000000000..abccc8c1f8e8eafbb024e529906df6acc8d05eec
+index 0000000000000000000000000000000000000000..0af4e86c8b271cbc76ca02b9dee61545adccf91b
 --- /dev/null
 +++ b/tests/gateway/test_hermachy_executor_bridge.py
 @@ -0,0 +1,56 @@
@@ -377,7 +556,7 @@ index 0000000000000000000000000000000000000000..abccc8c1f8e8eafbb024e529906df6ac
 +        [sys.executable, "-c", "import json,os; import gateway.run; "
 +         "print('ROUTE=' + json.dumps({k:v for k,v in os.environ.items() "
 +         "if k.startswith('TERMINAL_') or k.startswith('HERMACHY_')}))"],
-+        cwd=tmp_path, env=env, capture_output=True, text=True, timeout=60,
++        cwd=tmp_path, env=env, capture_output=True, text=True, timeout=60, check=False,
 +    )
 +    assert completed.returncode == 0, completed.stderr
 +    actual = json.loads(next(line[6:] for line in completed.stdout.splitlines()
@@ -445,7 +624,7 @@ index e7af43c8658f59f4d06f2e233f69370be0607e80..018fd31af5a349a1f1d3fe9f41d8ae05
 +    assert config["terminal"]["ssh_key"] == str(key)
 +    assert {name: os.environ.get(name) for name in values} == values
 diff --git a/tests/hermes_cli/test_env_loader.py b/tests/hermes_cli/test_env_loader.py
-index d5ebbb2efe45d87f1dced34f9d1dfe2de21a3a8a..4db50c2acb1a7032ac962ea88f8750d90e21188b 100644
+index 1a6e618f2f878cbc13f7d97a0b9c9132237fdc93..e3956de07d41dee08db6a6417bfa8520d57e863c 100644
 --- a/tests/hermes_cli/test_env_loader.py
 +++ b/tests/hermes_cli/test_env_loader.py
 @@ -622,3 +622,77 @@ def test_dotenv_published_dashboard_session_token_still_reloads(tmp_path, monkey
@@ -735,8 +914,27 @@ index 0000000000000000000000000000000000000000..97b58fd4f57346e7e4f76584dde17912
 +    assert changed > 0
 +    assert {name: os.environ.get(name) for name in values} == values
 +    assert os.environ["OPENAI_BASE_URL"] == "https://updated.example"
+diff --git a/tests/pm/test_hermachy_install_policy.py b/tests/pm/test_hermachy_install_policy.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..dc637ae2c6e83125fa3e918ad95196afca0b093e
+--- /dev/null
++++ b/tests/pm/test_hermachy_install_policy.py
+@@ -0,0 +1,13 @@
++"""The protected runtime cannot acquire optional dependencies mid-session."""
++
++import pm
++from hermes_cli.config import get_config_path
++
++
++def test_hermachy_overrides_enabled_lazy_install_config(monkeypatch):
++    get_config_path().write_text("security:\n  allow_lazy_installs: true\n", encoding="utf-8")
++    monkeypatch.delenv("HERMES_DISABLE_LAZY_INSTALLS", raising=False)
++    monkeypatch.delenv("HERMACHY_REQUIRE_SAFE_EXECUTOR", raising=False)
++    assert pm.lazy_installs_allowed()
++    monkeypatch.setenv("HERMACHY_REQUIRE_SAFE_EXECUTOR", "1")
++    assert not pm.lazy_installs_allowed()
 diff --git a/tests/tools/test_file_tools_container_config.py b/tests/tools/test_file_tools_container_config.py
-index cd7a012f330e7eb8ba6977058a334c612556a9ab..7e9a51773a8c290b92a0b02466e7da93fb6958a6 100644
+index 1db0213a1755e44d15f3ac7031815fd48d092c36..ac4980e92b07d660096856e4d7c31a6b6e502a7e 100644
 --- a/tests/tools/test_file_tools_container_config.py
 +++ b/tests/tools/test_file_tools_container_config.py
 @@ -65,3 +65,29 @@ class TestFileToolsContainerConfig:
@@ -771,7 +969,7 @@ index cd7a012f330e7eb8ba6977058a334c612556a9ab..7e9a51773a8c290b92a0b02466e7da93
 +        }
 diff --git a/tests/tools/test_hermachy_safe_executor_ssh.py b/tests/tools/test_hermachy_safe_executor_ssh.py
 new file mode 100644
-index 0000000000000000000000000000000000000000..f3de4df4aae8dd2cee14c0b132e87320a794c802
+index 0000000000000000000000000000000000000000..15237958eabd431b2db7ea86afd31adc8a383d77
 --- /dev/null
 +++ b/tests/tools/test_hermachy_safe_executor_ssh.py
 @@ -0,0 +1,478 @@
@@ -790,7 +988,7 @@ index 0000000000000000000000000000000000000000..f3de4df4aae8dd2cee14c0b132e87320
 +
 +from tools.environments import ssh as ssh_env
 +from tools.environments.ssh import SSHEnvironment
-+import tools.terminal_tool as terminal_tool
++from tools import terminal_tool
 +
 +
 +_HERMACHY_NAMES = (
@@ -1255,7 +1453,7 @@ index 0000000000000000000000000000000000000000..f3de4df4aae8dd2cee14c0b132e87320
 +        reset_terminal_scope(token)
 diff --git a/tests/tools/test_hermachy_surface_propagation.py b/tests/tools/test_hermachy_surface_propagation.py
 new file mode 100644
-index 0000000000000000000000000000000000000000..e482dbf444161a11b3da65ef3e8d453647507df5
+index 0000000000000000000000000000000000000000..9d7748d9c52822867aae2d50e6bddbc1ac4981b4
 --- /dev/null
 +++ b/tests/tools/test_hermachy_surface_propagation.py
 @@ -0,0 +1,187 @@
@@ -1266,9 +1464,9 @@ index 0000000000000000000000000000000000000000..e482dbf444161a11b3da65ef3e8d4536
 +import threading
 +from types import SimpleNamespace
 +
-+import tools.code_execution_tool as code_execution_tool
-+import tools.file_tools as file_tools
-+import tools.terminal_tool as terminal_tool
++from tools import code_execution_tool
++from tools import file_tools
++from tools import terminal_tool
 +
 +
 +def _hermachy_config() -> dict:
@@ -1446,33 +1644,8 @@ index 0000000000000000000000000000000000000000..e482dbf444161a11b3da65ef3e8d4536
 +
 +    assert result is not stale
 +    assert result.env is active_environment
-diff --git a/tests/tools/test_lazy_deps.py b/tests/tools/test_lazy_deps.py
-index 11bd8d1a7836df4bbdd517b7eb6105d6080c8880..e1a6ed37285197126a93ff0143140890da0740bd 100644
---- a/tests/tools/test_lazy_deps.py
-+++ b/tests/tools/test_lazy_deps.py
-@@ -119,6 +119,20 @@ class TestSecurityGating:
-         with pytest.raises(ld.FeatureUnavailable, match="lazy installs disabled"):
-             ld.ensure("test.feat", prompt=False)
- 
-+    def test_hermachy_mode_disables_lazy_installs_before_installer(self, monkeypatch):
-+        monkeypatch.setenv("HERMACHY_REQUIRE_SAFE_EXECUTOR", "1")
-+        monkeypatch.setitem(ld.LAZY_DEPS, "test.hermachy", ("packageX>=1.0,<2",))
-+        monkeypatch.setattr(ld, "_is_satisfied", lambda spec: False)
-+        monkeypatch.setattr(ld, "_allow_lazy_installs", lambda: True)
-+        monkeypatch.setattr(
-+            ld,
-+            "_venv_pip_install",
-+            lambda specs: pytest.fail("Hermachy mode must not invoke a runtime installer"),
-+        )
-+
-+        with pytest.raises(ld.FeatureUnavailable, match="disabled in Hermachy safe-executor mode"):
-+            ld.ensure("test.hermachy", prompt=False)
-+
- 
-     def test_config_failure_fails_open(self, monkeypatch):
-         # If config can't be read at all, we ALLOW installs rather than
 diff --git a/tests/tools/test_terminal_env_bridge.py b/tests/tools/test_terminal_env_bridge.py
-index 1d69f46d26ec916b8b408802c74a9c69f95762db..1206672692132a1675cd581f9f228b5a87a18d1e 100644
+index 2d50d0e888c1ab1b33942b0713af9db20ce608f3..00e9d3c9a8c9a869664a90ee6015c61c9cda5744 100644
 --- a/tests/tools/test_terminal_env_bridge.py
 +++ b/tests/tools/test_terminal_env_bridge.py
 @@ -187,3 +187,70 @@ def test_secondary_home_override_does_not_latch_ambient_env(tmp_path, monkeypatc
@@ -1546,14 +1719,24 @@ index 1d69f46d26ec916b8b408802c74a9c69f95762db..1206672692132a1675cd581f9f228b5a
 +
 +    with pytest.raises(RuntimeError, match="requires HERMACHY_REQUIRE_SAFE_EXECUTOR"):
 +        terminal_tool._get_env_config()
-diff --git a/tests/tui_gateway/test_protocol.py b/tests/tui_gateway/test_protocol.py
-index 0f95eb1bff651204e9dca3066cfc34503bc12260..ccc10a3508fae8c5314098327b569f27b3706d43 100644
---- a/tests/tui_gateway/test_protocol.py
-+++ b/tests/tui_gateway/test_protocol.py
-@@ -1571,3 +1571,84 @@ def test_peerless_global_broadcast_never_reaches_stdout_in_ws_backend(capture, m
- 
-     assert len(a.frames) == 1
-     assert buf.getvalue() == ""
+diff --git a/tests/tui_gateway/test_hermachy_boundary.py b/tests/tui_gateway/test_hermachy_boundary.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..f55069a0555fd4b67a39d4e4b804d69f087fa721
+--- /dev/null
++++ b/tests/tui_gateway/test_hermachy_boundary.py
+@@ -0,0 +1,180 @@
++"""Protected Hermachy sessions keep all workspace and execution routing on the workstation."""
++import os
++import pytest
++from tui_gateway import server as gateway
++
++
++@pytest.fixture
++def server():
++    methods = dict(gateway._methods)
++    yield gateway
++    gateway._methods.clear()
++    gateway._methods.update(methods)
 +
 +
 +@pytest.mark.parametrize(
@@ -1635,23 +1818,7 @@ index 0f95eb1bff651204e9dca3066cfc34503bc12260..ccc10a3508fae8c5314098327b569f27
 +
 +    assert response["error"]["code"] == 4035
 +    assert "quick commands are unavailable in Hermachy mode" in response["error"]["message"]
-diff --git a/tests/tui_gateway/test_tui_gateway_server.py b/tests/tui_gateway/test_tui_gateway_server.py
-index de4586d444acaa6d706cbd667c3a0c58c44e99c3..aaf23afacc1ac49f07cf0ff5642b47b071fba64b 100644
---- a/tests/tui_gateway/test_tui_gateway_server.py
-+++ b/tests/tui_gateway/test_tui_gateway_server.py
-@@ -16403,6 +16403,8 @@ def test_model_options_propagates_list_exception(monkeypatch):
- 
- 
- def test_model_options_preserves_canonical_custom_row_after_agent_init(monkeypatch):
-+    # A developer host may have Claude OAuth credentials in its system keychain.
-+    monkeypatch.setattr("hermes_cli.inventory._anthropic_oauth_credentials_present", lambda: False)
-     from hermes_cli.inventory import ConfigContext
- 
-     class _Agent:
-@@ -22184,3 +22186,89 @@ def test_load_cfg_raw_sees_replacement_with_pinned_mtime_and_size(monkeypatch, t
-     shutil.copy2(other, cfg)
-     os.utime(cfg, ns=(st.st_atime_ns, st.st_mtime_ns))
-     assert server._load_cfg_raw()["model"]["default"] == "aaaa-route"
++
 +
 +def _set_hermachy_tui_route(tmp_path, monkeypatch):
 +    key = tmp_path / "hermachy-key"
@@ -1673,7 +1840,7 @@ index de4586d444acaa6d706cbd667c3a0c58c44e99c3..aaf23afacc1ac49f07cf0ff5642b47b0
 +    return values
 +
 +
-+def test_hermachy_tui_cwd_ignores_brain_config_and_client_cwd(tmp_path, monkeypatch):
++def test_hermachy_tui_cwd_ignores_brain_config_and_client_cwd(tmp_path, monkeypatch, server):
 +    values = _set_hermachy_tui_route(tmp_path, monkeypatch)
 +    monkeypatch.setattr(
 +        server, "_launch_configured_cwd", lambda: "/Users/brain/configured"
@@ -1686,7 +1853,7 @@ index de4586d444acaa6d706cbd667c3a0c58c44e99c3..aaf23afacc1ac49f07cf0ff5642b47b0
 +    )
 +
 +
-+def test_hermachy_resume_cwd_ignores_stored_brain_path(tmp_path, monkeypatch):
++def test_hermachy_resume_cwd_ignores_stored_brain_path(tmp_path, monkeypatch, server):
 +    values = _set_hermachy_tui_route(tmp_path, monkeypatch)
 +
 +    assert (
@@ -1695,7 +1862,7 @@ index de4586d444acaa6d706cbd667c3a0c58c44e99c3..aaf23afacc1ac49f07cf0ff5642b47b0
 +    )
 +
 +
-+def test_hermachy_terminal_task_cwd_ignores_explicit_session_path(tmp_path, monkeypatch):
++def test_hermachy_terminal_task_cwd_ignores_explicit_session_path(tmp_path, monkeypatch, server):
 +    values = _set_hermachy_tui_route(tmp_path, monkeypatch)
 +    local = tmp_path / "studio-project"
 +    local.mkdir()
@@ -1705,7 +1872,7 @@ index de4586d444acaa6d706cbd667c3a0c58c44e99c3..aaf23afacc1ac49f07cf0ff5642b47b0
 +    ) == (values["TERMINAL_CWD"], "process")
 +
 +
-+def test_hermachy_session_cwd_change_cannot_replace_client_route(tmp_path, monkeypatch):
++def test_hermachy_session_cwd_change_cannot_replace_client_route(tmp_path, monkeypatch, server):
 +    values = _set_hermachy_tui_route(tmp_path, monkeypatch)
 +    local = tmp_path / "studio-project"
 +    local.mkdir()
@@ -1718,7 +1885,7 @@ index de4586d444acaa6d706cbd667c3a0c58c44e99c3..aaf23afacc1ac49f07cf0ff5642b47b0
 +
 +
 +def test_hermachy_config_set_cwd_cannot_persist_or_replace_client_route(
-+    tmp_path, monkeypatch
++    tmp_path, monkeypatch, server
 +):
 +    values = _set_hermachy_tui_route(tmp_path, monkeypatch)
 +    local = tmp_path / "studio-project"
@@ -1738,11 +1905,54 @@ index de4586d444acaa6d706cbd667c3a0c58c44e99c3..aaf23afacc1ac49f07cf0ff5642b47b0
 +    assert "pinned by the Hermachy client" in response["error"]["message"]
 +    assert os.environ["TERMINAL_CWD"] == values["TERMINAL_CWD"]
 +    assert writes == []
+diff --git a/tests/tui_gateway/test_hermachy_eof_shutdown.py b/tests/tui_gateway/test_hermachy_eof_shutdown.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..04f76df23016aff388984454bf87d9ffdcd8a7b2
+--- /dev/null
++++ b/tests/tui_gateway/test_hermachy_eof_shutdown.py
+@@ -0,0 +1,37 @@
++"""Closing a Hermachy client flushes sessions even with a stuck startup worker."""
++
++import os
++import subprocess
++import sys
++
++import pytest
++
++
++@pytest.mark.platforms("posix")
++def test_protected_eof_flushes_sessions_and_stops_startup_workers(tmp_path):
++    key = tmp_path / "ssh-key"
++    key.write_text("placeholder", encoding="utf-8")
++    key.chmod(0o600)
++    marker = tmp_path / "flushed"
++    env = dict(os.environ, HERMACHY_REQUIRE_SAFE_EXECUTOR="1",
++               TERMINAL_ENV="ssh", TERMINAL_CWD="/workstation",
++               TERMINAL_SSH_HOST="workstation.invalid", TERMINAL_SSH_USER="user",
++               TERMINAL_SSH_PORT="22", TERMINAL_SSH_KEY=str(key),
++               TERMINAL_SSH_PERSISTENT="true", TERMINAL_SYNC_REMOTE_STATE="false",
++               HERMES_TUI_GATEWAY_SHUTDOWN_GRACE_S="0.2")
++    script = """
++import runpy, sys, threading
++from pathlib import Path
++from tui_gateway import server
++from hermes_cli import model_switch_providers
++server._shutdown_sessions = lambda: Path(sys.argv[1]).write_text('flushed')
++def prewarm():
++    threading.Thread(target=threading.Event().wait, daemon=False).start()
++model_switch_providers.prewarm_picker_cache_async = prewarm
++runpy.run_module('tui_gateway.entry', run_name='__main__')
++"""
++    result = subprocess.run([sys.executable, "-c", script, str(marker)], input="",
++                            capture_output=True, text=True, timeout=10, env=env, check=False)
++    assert result.returncode == 0, result.stderr
++    assert "gateway.ready" in result.stdout
++    assert marker.read_text() == "flushed"
 diff --git a/tools/code_execution_tool.py b/tools/code_execution_tool.py
-index 9ba2739f6ce9218c3c7faedb0620035db7c411ba..a04472961824f213c6d2a0af53088d811c3fd20b 100644
+index 2198c5ab711c65da48698167a91c17ae751238fa..19a78f69cf4df931f7259403a7616fd8d1998a9e 100644
 --- a/tools/code_execution_tool.py
 +++ b/tools/code_execution_tool.py
-@@ -407,10 +407,12 @@ def _get_or_create_env(task_id: str):
+@@ -412,10 +412,12 @@ def _get_or_create_env(task_id: str):
          _start_cleanup_thread, _creation_locks, _creation_locks_lock, _task_env_overrides,
          _resolve_container_task_id, _resolve_task_host_cwd, _is_container_backend, _select_image,
      )
@@ -1756,7 +1966,7 @@ index 9ba2739f6ce9218c3c7faedb0620035db7c411ba..a04472961824f213c6d2a0af53088d81
                  _last_activity[effective_task_id] = time.time()
          return env
 diff --git a/tools/environments/ssh.py b/tools/environments/ssh.py
-index ff021a083762e621701fb4acef6f2a38d365874e..14971dcf5a2286eea73190693512aab27acd7858 100644
+index 1ece284eb5bac384c10277e9dc540c1a5c693129..d51e97c644add14c425269339756e1e7504c3125 100644
 --- a/tools/environments/ssh.py
 +++ b/tools/environments/ssh.py
 @@ -11,6 +11,8 @@ import tempfile
@@ -1768,15 +1978,15 @@ index ff021a083762e621701fb4acef6f2a38d365874e..14971dcf5a2286eea73190693512aab2
  from tools.environments.base import BaseEnvironment, EnvironmentConnectionError
  from tools.environments.base_output import _popen_bash
  from tools.environments.file_sync import (
-@@ -57,33 +59,191 @@ class SSHEnvironment(BaseEnvironment):
+@@ -58,36 +60,195 @@ class SSHEnvironment(BaseEnvironment):
  
      def __init__(self, host: str, user: str, cwd: str = "~",
                   timeout: int = 60, port: int = 22, key_path: str = "",
--                 probe_only: bool = False):
-+                 probe_only: bool = False,
+-                 probe_only: bool = False, sync_files: bool = True, persistent: bool = True):
++                 probe_only: bool = False, sync_files: bool = True, persistent: bool = True,
 +                 sync_remote_state: bool = True,
 +                 hermachy_safe_executor: bool = False):
-         super().__init__(cwd=cwd, timeout=timeout)
+         super().__init__(cwd=cwd, timeout=timeout, persist_env=persistent)
 -        self.host, self.user, self.port, self.key_path = host, user, port, key_path
 -        self.control_dir = Path(tempfile.gettempdir()) / "hermes-ssh"
 -        self.control_dir.mkdir(parents=True, exist_ok=True)
@@ -1793,14 +2003,26 @@ index ff021a083762e621701fb4acef6f2a38d365874e..14971dcf5a2286eea73190693512aab2
 -        self._establish_connection()
 -        if probe_only:
 -            self._sync_manager = None
+-            return
+-        self._remote_home_detected = False
+-        self._remote_home = self._detect_remote_home()
 +        self.host = host
 +        self.user = user
 +        self.port = port
 +        self.key_path = key_path
 +        self.sync_remote_state = bool(sync_remote_state)
 +        self.hermachy_safe_executor = bool(hermachy_safe_executor)
-+        self._sync_manager = None
+         self._sync_manager = None
+-        if sync_files:
+-            self._ensure_remote_dirs()
+-            self._sync_manager = FileSyncManager(
+-                get_files_fn=lambda: iter_sync_files(f"{self._remote_home}/.hermes"),
+-                upload_fn=self._scp_upload, delete_fn=self._ssh_delete,
+-                bulk_upload_fn=self._ssh_bulk_upload, bulk_download_fn=self._ssh_bulk_download)
+-            self._sync_manager.sync(force=True)
+-        self.init_session()
 +        self._remote_home = ""
++        self._remote_home_detected = False
 +        self._owns_control_dir = False
 +
 +        requested = is_hermachy_safe_executor_requested()
@@ -1843,6 +2065,7 @@ index ff021a083762e621701fb4acef6f2a38d365874e..14971dcf5a2286eea73190693512aab2
 +            # fresh 0700 directory prevents reuse by ordinary Hermes sessions
 +            # or another Hermachy process, even for the same host/user/key.
 +            self.control_dir = Path(
++                # no-tmp: ok — private POSIX SSH socket must fit macOS sun_path, unlike the profile scratch path
 +                tempfile.mkdtemp(prefix="hermes-hermachy-ssh-", dir="/tmp")
 +            )
 +            self.control_dir.chmod(0o700)
@@ -1871,8 +2094,9 @@ index ff021a083762e621701fb4acef6f2a38d365874e..14971dcf5a2286eea73190693512aab2
 +
 +            if probe_only:
 +                return
-+            if self.sync_remote_state:
++            if not self.hermachy_safe_executor:
 +                self._remote_home = self._detect_remote_home()
++            if self.sync_remote_state and sync_files:
 +                self._ensure_remote_dirs()
 +                self._sync_manager = FileSyncManager(
 +                    get_files_fn=lambda: iter_sync_files(f"{self._remote_home}/.hermes"),
@@ -1918,15 +2142,7 @@ index ff021a083762e621701fb4acef6f2a38d365874e..14971dcf5a2286eea73190693512aab2
 +        remove_control_socket: bool = True,
 +    ) -> None:
 +        if not self._owns_control_dir:
-             return
--        self._remote_home = self._detect_remote_home()
--        self._ensure_remote_dirs()
--        self._sync_manager = FileSyncManager(
--            get_files_fn=lambda: iter_sync_files(f"{self._remote_home}/.hermes"),
--            upload_fn=self._scp_upload, delete_fn=self._ssh_delete,
--            bulk_upload_fn=self._ssh_bulk_upload, bulk_download_fn=self._ssh_bulk_download)
--        self._sync_manager.sync(force=True)
--        self.init_session()
++            return
 +        if not remove_control_socket and self.control_socket.exists():
 +            logger.error(
 +                "Leaving Hermachy control directory in place because SSH master "
@@ -1964,6 +2180,7 @@ index ff021a083762e621701fb4acef6f2a38d365874e..14971dcf5a2286eea73190693512aab2
 +        try:
 +            result = subprocess.run(
 +                command,
++                check=False,
 +                capture_output=True,
 +                text=True,
 +                timeout=10,
@@ -1985,7 +2202,7 @@ index ff021a083762e621701fb4acef6f2a38d365874e..14971dcf5a2286eea73190693512aab2
  
      def _control_socket_for(self, send_env: tuple[str, ...]) -> Path:
          """One ControlMaster per SendEnv name-set, beside the plain target socket: a mux master only
-@@ -106,15 +266,19 @@ class SSHEnvironment(BaseEnvironment):
+@@ -110,15 +271,19 @@ class SSHEnvironment(BaseEnvironment):
      def _target_flags(self, port_flag: str) -> list:
          """Port/key flags shared by ssh (``-p``) and scp (``-P``)."""
          flags = [port_flag, str(self.port)] if self.port != 22 else []
@@ -2008,7 +2225,7 @@ index ff021a083762e621701fb4acef6f2a38d365874e..14971dcf5a2286eea73190693512aab2
          # Names only; values ride the ssh client's own environment (never the remote command text).
          cmd.extend(arg for name in send_env for arg in ("-o", f"SendEnv={name}"))
          cmd.extend(self._target_flags("-p"))
-@@ -278,12 +442,20 @@ class SSHEnvironment(BaseEnvironment):
+@@ -283,12 +448,20 @@ class SSHEnvironment(BaseEnvironment):
          client's env carries the values, so secrets never enter the remote ``bash -c`` argv. The
          remote sshd must ``AcceptEnv`` them (#14091). Profile-scoped names missing from the active
          scope are unset remotely so a shared host cannot serve another profile's value."""
@@ -2030,10 +2247,10 @@ index ff021a083762e621701fb4acef6f2a38d365874e..14971dcf5a2286eea73190693512aab2
              logger.info("SSH: syncing files from sandbox...")
              self._sync_manager.sync_back()
 diff --git a/tools/file_tools.py b/tools/file_tools.py
-index 9985643121fdee13982cca9f96913deff6e05d36..0f7e1f8ba5bf05c5effa8ef001019f6134408a4b 100644
+index 237d97d87e64fbd224adc60dcce8f44705106c75..adb993874802420a9d34410d1952fc8b0feda5e0 100644
 --- a/tools/file_tools.py
 +++ b/tools/file_tools.py
-@@ -311,6 +311,8 @@ def _get_file_ops(task_id: str = "default") -> ShellFileOperations:
+@@ -318,6 +318,8 @@ def _get_file_ops(task_id: str = "default") -> ShellFileOperations:
      delegate_task children share the parent's container; RL/benchmark task_ids
      with a registered env override keep their isolation.
      """
@@ -2042,7 +2259,7 @@ index 9985643121fdee13982cca9f96913deff6e05d36..0f7e1f8ba5bf05c5effa8ef001019f61
      from tools.terminal_tool import (
          _active_environments, _env_lock, _last_activity, _start_cleanup_thread,
          _creation_locks, _creation_locks_lock, _resolve_container_task_id,
-@@ -326,7 +328,10 @@ def _get_file_ops(task_id: str = "default") -> ShellFileOperations:
+@@ -333,7 +335,10 @@ def _get_file_ops(task_id: str = "default") -> ShellFileOperations:
          with _env_lock:
              if task_id in _active_environments:
                  _last_activity[task_id] = time.time()
@@ -2054,7 +2271,7 @@ index 9985643121fdee13982cca9f96913deff6e05d36..0f7e1f8ba5bf05c5effa8ef001019f61
              # Env was cleaned up: rescue its cwd into the session record FILL-ONLY
              # (``cached.cwd`` is the SHARED env's cwd, not this session's own).
              # Environment was cleaned up -- preserve the old cwd in the session record before invalidating
-@@ -352,6 +357,7 @@ def _get_file_ops(task_id: str = "default") -> ShellFileOperations:
+@@ -359,6 +364,7 @@ def _get_file_ops(task_id: str = "default") -> ShellFileOperations:
          # Double-check: another thread may have created it while we waited.
          with _env_lock:
              terminal_env = _active_environments.get(task_id)
@@ -2062,23 +2279,8 @@ index 9985643121fdee13982cca9f96913deff6e05d36..0f7e1f8ba5bf05c5effa8ef001019f61
              if terminal_env is not None:
                  _last_activity[task_id] = time.time()
          if terminal_env is None:
-diff --git a/tools/lazy_deps.py b/tools/lazy_deps.py
-index 303fcc0c13bf08493e7b2e93ddb3e96aa58f6269..64f3111e171976a5f978bfaaf9a7aa238748d68a 100644
---- a/tools/lazy_deps.py
-+++ b/tools/lazy_deps.py
-@@ -697,6 +697,10 @@ def ensure(feature: str, *, prompt: bool = True) -> None:
-     missing = feature_missing(feature)
-     if not missing:
-         return
-+    from hermes_cli.safe_executor import is_hermachy_safe_executor_requested
-+    if is_hermachy_safe_executor_requested():
-+        raise FeatureUnavailable(feature, missing,
-+            "lazy installs disabled in Hermachy safe-executor mode; install dependencies from the pinned runtime lock before launch")
-     if unsupported := _unsupported_feature_reason(feature):
-         raise FeatureUnavailable(feature, missing, unsupported)
-     # Package-manager installs (NixOS etc.) have read-only site-packages: fail fast instead of burning
 diff --git a/tools/terminal_scope.py b/tools/terminal_scope.py
-index a7cf9ba644ea9ae97ad52f4fa15c2fc0b4836320..3cb4efac1fc02eed864ce16512a1ff3029ed400b 100644
+index 6b5b707ad4566de208d6feeb6279374b69d78a79..48c5ffc6512865e2fbe5d0539169437d2249c1d6 100644
 --- a/tools/terminal_scope.py
 +++ b/tools/terminal_scope.py
 @@ -78,6 +78,11 @@ def terminal_env(name: str, default: str = "") -> str:
@@ -2094,12 +2296,12 @@ index a7cf9ba644ea9ae97ad52f4fa15c2fc0b4836320..3cb4efac1fc02eed864ce16512a1ff30
      if scope is None:
          return os.environ.get(name, default)
 diff --git a/tools/terminal_tool.py b/tools/terminal_tool.py
-index efb397fb9e8feb6273908d01a2e774d9137abc11..f03a00e1a473eb71317b62698c9dcfed1d5c384a 100644
+index 21b849aa5d99e14522513d7b7355f84e63128a8d..9df519394ab3eca8e7608a6591dcf58ae021c025 100644
 --- a/tools/terminal_tool.py
 +++ b/tools/terminal_tool.py
-@@ -314,6 +314,28 @@ def register_task_env_overrides(task_id: str, overrides: Dict[str, Any]):
-     (host workspaces are tracked there on purpose); only the live-env write is
-     sanitized, since a host cwd can never be a container workdir.
+@@ -323,6 +323,28 @@ def register_task_env_overrides(task_id: str, overrides: dict[str, Any]):
+     Keyed like ``_session_cwd`` — routed-profile qualified (:func:`_qualify_task_key`) — so two
+     profiles registering the same task id never read each other's image/cwd (#123989).
      """
 +    from hermes_cli.safe_executor import (
 +        SafeExecutorError,
@@ -2123,10 +2325,10 @@ index efb397fb9e8feb6273908d01a2e774d9137abc11..f03a00e1a473eb71317b62698c9dcfed
 +            raise SafeExecutorError(
 +                "working directory is pinned by the Hermachy client"
 +            )
-     _task_env_overrides[task_id] = overrides
+     _task_env_overrides[_qualify_task_key(task_id)] = overrides
  
      new_cwd = overrides.get("cwd")
-@@ -548,6 +570,7 @@ def _lookup_active_env(effective_task_id: str, task_id: Optional[str]):
+@@ -571,6 +593,7 @@ def _lookup_active_env(effective_task_id: str, task_id: Optional[str]):
      for key in (effective_task_id, task_id):
          if key and key in _active_environments:
              _last_activity[key] = time.time()
@@ -2134,9 +2336,9 @@ index efb397fb9e8feb6273908d01a2e774d9137abc11..f03a00e1a473eb71317b62698c9dcfed
              return _active_environments[key]
      return None
  
-@@ -668,6 +691,26 @@ def _resolve_config_cwd(env_type: str, mount_docker_cwd: bool) -> tuple:
+@@ -710,6 +733,26 @@ def _resolve_config_cwd(env_type: str, mount_docker_cwd: bool) -> tuple:
  
- def _get_env_config() -> Dict[str, Any]:
+ def _get_env_config() -> dict[str, Any]:
      """Resolve the terminal configuration dict from TERMINAL_* env vars."""
 +    from hermes_cli.safe_executor import (
 +        SafeExecutorError,
@@ -2158,10 +2360,10 @@ index efb397fb9e8feb6273908d01a2e774d9137abc11..f03a00e1a473eb71317b62698c9dcfed
 +            "TERMINAL_SYNC_REMOTE_STATE=false requires "
 +            "HERMACHY_REQUIRE_SAFE_EXECUTOR=1"
 +        )
-     default_image = "nikolaik/python-nodejs:python3.11-nodejs20"
+     from hermes_cli.config_defaults import DEFAULT_SANDBOX_IMAGE as default_image
      _ensure_terminal_env_bridged()
      env_type = _tenv("TERMINAL_ENV", "local")
-@@ -709,6 +752,8 @@ def _get_env_config() -> Dict[str, Any]:
+@@ -753,6 +796,8 @@ def _get_env_config() -> dict[str, Any]:
          "timeout": _parse_env_var("TERMINAL_TIMEOUT", "180"),
          "lifetime_seconds": _parse_env_var("TERMINAL_LIFETIME_SECONDS", "300"),
          # SSH-specific config
@@ -2170,7 +2372,7 @@ index efb397fb9e8feb6273908d01a2e774d9137abc11..f03a00e1a473eb71317b62698c9dcfed
          "ssh_host": _tenv("TERMINAL_SSH_HOST", ""),
          "ssh_user": _tenv("TERMINAL_SSH_USER", ""),
          "ssh_port": _parse_env_var("TERMINAL_SSH_PORT", "22"),
-@@ -772,6 +817,38 @@ def _stop_cleanup_thread():
+@@ -816,6 +861,38 @@ def _stop_cleanup_thread():
              pass
  
  
@@ -2210,36 +2412,36 @@ index efb397fb9e8feb6273908d01a2e774d9137abc11..f03a00e1a473eb71317b62698c9dcfed
      """Stop the cleanup thread and shut down all remaining sandboxes on exit."""
      _stop_cleanup_thread()
 diff --git a/tools/terminal_tool_backends.py b/tools/terminal_tool_backends.py
-index ae6a9204ebe6528995520ae4fa71add11e11b202..c43dd31716e16e0e5ffa3ba0e8a2ee2c254198a2 100644
+index c3230af339aadd5e6162fa031f207f628a28b447..eef17d4ef7f0e7bf0983cb92d8a1bd8460bf3895 100644
 --- a/tools/terminal_tool_backends.py
 +++ b/tools/terminal_tool_backends.py
 @@ -56,7 +56,9 @@ _BUILTIN_BACKENDS = "local, docker, singularity, modal, daytona, vercel_sandbox,
  # Config -> kwargs shapers, driven by (out_key, config_key, default) tables. The container table's
  # (key, default) literal is intentionally greppable; tools/terminal_tool.py keeps its own for the AST test.
  _SSH_KEYS = (("host", "ssh_host", ""), ("user", "ssh_user", ""), ("port", "ssh_port", 22),
--             ("key", "ssh_key", ""), ("persistent", "ssh_persistent", False))
-+             ("key", "ssh_key", ""), ("persistent", "ssh_persistent", False),
+-             ("key", "ssh_key", ""), ("persistent", "ssh_persistent", True))
++             ("key", "ssh_key", ""), ("persistent", "ssh_persistent", True),
 +             ("sync_remote_state", "sync_remote_state", True),
 +             ("hermachy_safe_executor", "hermachy_safe_executor", False))
  _RESOURCE_KEYS = (("cpu", "container_cpu", 1), ("memory", "container_memory", 5120),
                    ("disk", "container_disk", 51200), ("persistent_filesystem", "container_persistent", True))
  _CONTAINER_KEYS = (
-@@ -203,7 +205,9 @@ def _build_ssh_env(*, cwd, timeout, ssh_config, probe_only=False, **_):
-     if not ssh_config or not ssh_config.get("host") or not ssh_config.get("user"):
+@@ -211,7 +213,9 @@ def _build_ssh_env(*, cwd, timeout, ssh_config, probe_only=False, **_):
          raise ValueError("SSH environment requires ssh_host and ssh_user to be configured")
      return _SSHEnvironment(host=ssh_config["host"], user=ssh_config["user"], port=ssh_config.get("port", 22),
--                           key_path=ssh_config.get("key", ""), cwd=cwd, timeout=timeout, probe_only=probe_only)
-+                           key_path=ssh_config.get("key", ""), cwd=cwd, timeout=timeout, probe_only=probe_only,
+                            key_path=ssh_config.get("key", ""), cwd=cwd, timeout=timeout, probe_only=probe_only,
+-                           persistent=ssh_config.get("persistent", True))
++                           persistent=ssh_config.get("persistent", True),
 +                           sync_remote_state=ssh_config.get("sync_remote_state", True),
 +                           hermachy_safe_executor=ssh_config.get("hermachy_safe_executor", False))
  
  
  def _build_plugin_env(*, env_type, image, cwd, timeout, cc, task_id, **_):
 diff --git a/tools/terminal_tool_lifecycle.py b/tools/terminal_tool_lifecycle.py
-index 74f48b73e915060efef23a4441f8fba479d79f97..b991bff05059fb7f0d4e9d51e265593b149f8236 100644
+index 59d3646f59ed5f8e5bb6d316151c6dbdd778dbb0..406bec1ee01355cfaa32320890f5512a0b2e9659 100644
 --- a/tools/terminal_tool_lifecycle.py
 +++ b/tools/terminal_tool_lifecycle.py
-@@ -178,7 +178,10 @@ def get_active_env(task_id: str):
+@@ -180,7 +180,10 @@ def get_active_env(task_id: str):
      from tools.terminal_tool import _active_environments, _env_lock, _resolve_container_task_id
      lookup = _resolve_container_task_id(task_id)
      with _env_lock:
@@ -2251,11 +2453,36 @@ index 74f48b73e915060efef23a4441f8fba479d79f97..b991bff05059fb7f0d4e9d51e265593b
  
  
  def ensure_task_env(task_id: Optional[str] = None):
+diff --git a/tui_gateway/entry.py b/tui_gateway/entry.py
+index 6f7c2d23e990eb7c3593dec335e0c105840fcb06..3958b45a554489f2c9aef7b81c660bdd95b36b52 100644
+--- a/tui_gateway/entry.py
++++ b/tui_gateway/entry.py
+@@ -133,6 +133,11 @@ def _log_signal(signum: int, frame) -> None:
+ 
+     _append_crash_log(f"{name} received · {time.strftime('%Y-%m-%d %H:%M:%S')}", _dump)
+     print(f"[gateway-signal] {name}", file=sys.stderr, flush=True)
++    _shutdown_gateway()
++
++
++def _shutdown_gateway() -> None:
++    """Flush sessions and bound worker-pool teardown on a requested stop."""
+     # ``os._exit`` skips atexit but breaks the mid-flush deadlock; the crash log is the trail.
+     timer = threading.Timer(_shutdown_grace_seconds(), _hard_exit)
+     timer.daemon = True
+@@ -363,3 +368,8 @@ def main():
+ 
+ if __name__ == "__main__":
+     main()
++    # Hermachy's supervisor sends EOF when its local TUI closes. Python waits
++    # for non-daemon startup workers before atexit, so use the same bounded
++    # flush as SIGTERM instead of leaving the protected gateway alive.
++    if os.environ.get("HERMACHY_REQUIRE_SAFE_EXECUTOR") == "1":
++        _shutdown_gateway()
 diff --git a/tui_gateway/methods_config_set.py b/tui_gateway/methods_config_set.py
-index 7e5f2d4ffc9b84998cefdd41259f94ae157e0ff7..032965bee2c98217bee2770349c36f2698e9002d 100644
+index d691c1d2a81a8a839730a64c05d510920696efbf..424f71c348ff92ae5900a14664e859ffc1f65374 100644
 --- a/tui_gateway/methods_config_set.py
 +++ b/tui_gateway/methods_config_set.py
-@@ -407,6 +407,8 @@ def _set_toggle(rid, params, key, value, session):
+@@ -430,6 +430,8 @@ def _set_toggle(rid, params, key, value, session):
  
  
  def _set_cwd(rid, params, key, value, session):
@@ -2265,23 +2492,27 @@ index 7e5f2d4ffc9b84998cefdd41259f94ae157e0ff7..032965bee2c98217bee2770349c36f26
      if not raw:
          return _err(rid, 4002, "cwd required")
 diff --git a/tui_gateway/methods_session.py b/tui_gateway/methods_session.py
-index a41aeff7b731f99a69dfc8556b5ade04d30a83f7..279d3aaab2c8cc0510e4218ea430094aa02d52d6 100644
+index c83b0ef4e4d2fb6d5bad5c2913acfb8a32c60735..f021c800e4131c8dcc30ba01066bcf7e56995102 100644
 --- a/tui_gateway/methods_session.py
 +++ b/tui_gateway/methods_session.py
-@@ -927,7 +927,7 @@ def _(rid, params: dict) -> dict:
+@@ -1061,9 +1061,9 @@ def _(rid, params: dict) -> dict:
          _resume_follow_tip(ctx)
          if (resp := _resume_guard(ctx)) is not None:
              return resp
--        ctx.profile_resume_cwd = _str_param(ctx.found, "cwd") or _profile_configured_cwd(ctx.profile_home)
-+        ctx.profile_resume_cwd = _resume_session_cwd(ctx.found.get("cwd"), ctx.profile_home)
-         # Fast path: reuse a session live IN THIS PROFILE (never another profile's runtime).
-         with _session_resume_lock:
+-        ctx.profile_resume_cwd = (_resumable_stored_cwd(_str_param(ctx.found, "cwd"), ctx.profile_home)
+-                                  or _profile_default_cwd(ctx.profile_home))
+-        with _session_resume_lock:  # fast path: reuse a session live IN THIS PROFILE, never another's
++        ctx.profile_resume_cwd = _resume_session_cwd(_str_param(ctx.found, "cwd"), ctx.profile_home)
++        # Fast path: reuse a session live IN THIS PROFILE (never another profile's runtime).
++        with _session_resume_lock:
              live = _find_live_session_by_key(ctx.target, ctx.profile_home)
+         if live is not None:
+             return _resume_reuse_live(ctx, *live)
 diff --git a/tui_gateway/methods_tools.py b/tui_gateway/methods_tools.py
-index 856f59fce41ea5da9f5d5a6e41339ef6d064af53..33f8423fe435bcb82b598036aa34a30847a6a6de 100644
+index d4176f73745404010d08ef14fd3d91159a40e1a6..f5e806e2a73873ab56bafb1b6b4cb686b05f1ed6 100644
 --- a/tui_gateway/methods_tools.py
 +++ b/tui_gateway/methods_tools.py
-@@ -552,6 +552,9 @@ def _dispatch_quick(rid, params, session, name, arg):
+@@ -576,6 +576,9 @@ def _dispatch_quick(rid, params, session, name, arg):
      if qc is None:
          return None
      if qc.get("type") == "exec":
@@ -2292,7 +2523,7 @@ index 856f59fce41ea5da9f5d5a6e41339ef6d064af53..33f8423fe435bcb82b598036aa34a308
          env = _tools_mod("tools.environments.local").build_subprocess_env()
          r = subprocess.run(qc.get("command", ""), shell=True, env=env, **_capture_run_kwargs(30))
 diff --git a/tui_gateway/rpc_dispatch.py b/tui_gateway/rpc_dispatch.py
-index 17bb684f1371a3089a4d4814ef7f0ce376fd50ae..f1e1b90d3a6bb0b26edc48ec757c5e4755cb2f65 100644
+index b2a2587c42dab0b09a24b66e842910f36abfb539..25048713e240926fd1037c98b276100f559d82de 100644
 --- a/tui_gateway/rpc_dispatch.py
 +++ b/tui_gateway/rpc_dispatch.py
 @@ -5,6 +5,26 @@ from __future__ import annotations
@@ -2332,11 +2563,24 @@ index 17bb684f1371a3089a4d4814ef7f0ce376fd50ae..f1e1b90d3a6bb0b26edc48ec757c5e47
          return _err(rid, -32601, f"unknown method: {method} — the client and the Hermes backend are out of sync "
                      "(different versions); run `hermes update` and restart both")
 diff --git a/tui_gateway/server.py b/tui_gateway/server.py
-index 475d106c4a9bcf7606921d951ee3d4e08ef63642..8837dd6ccbd22a26100a2c50ed76641e44450254 100644
+index 83b1ff52f4eab8b4ad3d938e0d2de71db09ddaea..3be295e14936b9ace0e92c3959504f20df5d715f 100644
 --- a/tui_gateway/server.py
 +++ b/tui_gateway/server.py
-@@ -619,10 +619,34 @@ def _launch_configured_cwd() -> str | None:
-     return _profile_configured_cwd(Path(_hermes_home))
+@@ -674,7 +674,7 @@ def _launch_configured_cwd() -> str | None:
+ def _default_session_cwd() -> str:
+     """Fallback cwd when no explicit / stored / profile cwd (mirrors :func:`_completion_cwd`'s tail so created
+     AND resumed sessions land in the configured ``terminal.cwd``)."""
+-    return _launch_configured_cwd() or os.getenv("TERMINAL_CWD") or os.getcwd()
++    return _hermachy_executor_cwd() or _launch_configured_cwd() or os.getenv("TERMINAL_CWD") or os.getcwd()
+ 
+ 
+ def write_json(obj: dict) -> bool:
+diff --git a/tui_gateway/session_workdir.py b/tui_gateway/session_workdir.py
+index 3e057af5c12bf43804eb8193428a7358e11d6b17..a66da270919fbb816906e41b7a2d2e16d69a32c1 100644
+--- a/tui_gateway/session_workdir.py
++++ b/tui_gateway/session_workdir.py
+@@ -13,6 +13,30 @@ from tui_gateway import git_probe
+ from .method_ctx import bind_module
  
  
 +def _hermachy_executor_cwd() -> str | None:
@@ -2359,23 +2603,14 @@ index 475d106c4a9bcf7606921d951ee3d4e08ef63642..8837dd6ccbd22a26100a2c50ed76641e
 +    pinned = _hermachy_executor_cwd()
 +    if pinned is not None:
 +        return pinned
-+    return str(stored_cwd or "").strip() or _profile_configured_cwd(profile_home)
++    return _resumable_stored_cwd(stored_cwd, profile_home) or _profile_default_cwd(profile_home)
 +
 +
 +
- def _default_session_cwd() -> str:
-     """Fallback cwd when no explicit / stored / profile cwd (mirrors :func:`_completion_cwd`'s tail so created
-     AND resumed sessions land in the configured ``terminal.cwd``)."""
--    return _launch_configured_cwd() or os.getenv("TERMINAL_CWD") or os.getcwd()
-+    return _hermachy_executor_cwd() or _launch_configured_cwd() or os.getenv("TERMINAL_CWD") or os.getcwd()
- 
- 
- def write_json(obj: dict) -> bool:
-diff --git a/tui_gateway/session_workdir.py b/tui_gateway/session_workdir.py
-index c9196756b9b0b4025c18b1e6c925a531ee2f5d5b..a1558fcf361c2c91012d792924777a23d495d287 100644
---- a/tui_gateway/session_workdir.py
-+++ b/tui_gateway/session_workdir.py
-@@ -21,6 +21,9 @@ def _normalize_completion_path(path_part: str) -> str:
+ def _normalize_completion_path(path_part: str) -> str:
+     expanded = os.path.expanduser(path_part)
+     if os.name != "nt":
+@@ -23,6 +47,9 @@ def _normalize_completion_path(path_part: str) -> str:
  
  
  def _completion_cwd(params: dict | None = None) -> str:
@@ -2383,34 +2618,33 @@ index c9196756b9b0b4025c18b1e6c925a531ee2f5d5b..a1558fcf361c2c91012d792924777a23
 +    if pinned is not None:
 +        return pinned
      params = params or {}
-     # A session bound to another profile resolves its workspace from THAT profile's config before the launch profile's
-     # env var; the dashboard's in-memory gateway does NOT inherit the PTY child's bridged TERMINAL_CWD, so a configured
-@@ -54,6 +57,9 @@ def _terminal_task_cwd_with_source(session: dict | None) -> tuple[str, str]:
+     # Provenance for the client-sent ``cwd`` (#52589): the desktop seeds a new chat's cwd
+     # from its app-global workspace (the launch profile's configured directory or the
+@@ -191,6 +218,9 @@ def _terminal_task_cwd_with_source(session: dict | None) -> tuple[str, str]:
      """``(cwd, source)``: ``"session"`` for THIS session's workspace (``explicit_cwd``/tracked dir), ``"process"`` for
      the global ``TERMINAL_CWD``/``terminal.cwd`` fallback — under per-session docker isolation that is a PREVIOUS
      session's launch artifact, so terminal_tool refuses it as a bind-mount source."""
 +    pinned = _hermachy_executor_cwd()
 +    if pinned is not None:
 +        return pinned, "process"
-     backend = _effective_terminal_backend()
-     if backend != "local":
-         # THIS session's explicit workspace beats the LAST session's env var.
-@@ -529,9 +535,15 @@ def _persist_session_cwd_and_schedule_git_meta(session: dict, cwd: str, *, db=No
+     profile_home = (session or {}).get("profile_home")
+     # A named ssh profile's session is ssh whatever the launch process runs; other named backends keep main's
+     # process-backend semantics (docker isolation's "process" vs "session" source depends on it).
+@@ -883,9 +913,14 @@ def _persist_session_cwd_and_schedule_git_meta(session: dict, cwd: str, *, db=No
  def _set_session_cwd(session: dict, cwd: str) -> str:
      from hermes_constants import translate_cwd_for_wsl_backend
      cwd = translate_cwd_for_wsl_backend(str(cwd))
--    resolved = os.path.abspath(os.path.expanduser(cwd))
--    if not os.path.isdir(resolved):
--        raise ValueError(f"working directory does not exist: {cwd}")
+-    resolved = _workspace_cwd(session.get("profile_home"), cwd)
+-    # An explicit user choice: persisted as the workspace (not the launch-dir fallback), superseding a settle-adopted
+-    # cwd — and PINNED, so the settle reconcile cannot drag it to another worktree the agent merely visited.
 +    pinned = _hermachy_executor_cwd()
 +    if pinned is not None:
 +        if os.path.normpath(cwd) != os.path.normpath(pinned):
 +            raise ValueError("working directory is pinned by the Hermachy client")
 +        resolved = pinned
 +    else:
-+        resolved = os.path.abspath(os.path.expanduser(cwd))
-+        if not os.path.isdir(resolved):
-+            raise ValueError(f"working directory does not exist: {cwd}")
-     # An explicit user choice: persisted as the workspace (not the launch-dir fallback), superseding a settle-adopted cwd.
-     session.update(cwd=resolved, explicit_cwd=True, cwd_from_settle=False)
++        resolved = _workspace_cwd(session.get("profile_home"), cwd)
++    # An explicit user choice: persisted as the workspace (not the launch-dir fallback), superseding a settle-adopted cwd.
+     session.update(cwd=resolved, explicit_cwd=True, cwd_pinned=True, cwd_from_settle=False)
      _register_session_cwd(session)
+     # The synchronous DB write claims ordering authority; git probes may publish only for that exact generation.

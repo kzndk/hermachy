@@ -1,6 +1,6 @@
 # Configure Omarchy with a remote Hermes Agent
 
-This guide installs Hermachy 0.4.3 and connects an Omarchy workstation to a Hermes Agent running on another machine. You start `hermachy` in an Omarchy project directory and interact with the native Hermes TUI rendered locally. Native terminal, file, and code tools run on Omarchy; `terminal(target="hermes")` also lets the agent choose the remote Hermes host for commands, CLI tools, files and code. See [connection recovery and execution targets](../README.md#connection-recovery-and-execution-targets) for routing and recovery behavior.
+This guide installs Hermachy 0.5.2 and connects an Omarchy workstation to a Hermes Agent running on another machine. You start `hermachy` in an Omarchy project directory and interact with the native Hermes TUI rendered locally. Native terminal, file, and code tools run on Omarchy; `terminal(target="hermes")` also lets the agent choose the remote Hermes host for commands, CLI tools, files and code. See [connection recovery and execution targets](../README.md#connection-recovery-and-execution-targets) for routing and recovery behavior.
 
 ## 1. Understand the boundary
 
@@ -77,7 +77,7 @@ Install Tailscale and OpenSSH using the operating system's normal method. On mac
 Install the [pinned compatible Hermes runtime](../compat/hermes/README.md) as
 `REMOTE_USER` before proceeding. That guide fetches a public upstream commit,
 applies the included capability patch, installs locked dependencies with Python
-3.11, and walks through provider setup. An arbitrary stock Hermes installation
+3.14 through Hermes PM, and walks through provider setup. An arbitrary stock Hermes installation
 does not satisfy this prerequisite.
 
 After following it, Hermes must work locally for `REMOTE_USER`:
@@ -85,8 +85,8 @@ After following it, Hermes must work locally for `REMOTE_USER`:
 ```bash
 whoami
 hostname
-"$HOME/.local/share/hermachy/hermes-safe-executor-v2/venv/bin/hermes" --profile=default --version
-"$HOME/.local/share/hermachy/hermes-safe-executor-v2/venv/bin/hermes" --profile=default doctor
+"$HOME/.local/share/hermachy/hermes-v0.22.2/venv/bin/hermes" --profile=default --version
+"$HOME/.local/share/hermachy/hermes-v0.22.2/venv/bin/hermes" --profile=default doctor
 python3 --version
 tailscale status
 ```
@@ -102,7 +102,7 @@ tools/environments/ssh.py
 The compatibility guide installs this source/runtime directory:
 
 ```text
-~/.local/share/hermachy/hermes-safe-executor-v2
+~/.local/share/hermachy/hermes-v0.22.2
 ```
 
 ### Required Hermes safe-executor capability
@@ -110,7 +110,7 @@ The compatibility guide installs this source/runtime directory:
 The remote Hermes build must implement Hermachy safe-executor capability v2. Check it from the Hermes source/runtime directory:
 
 ```bash
-cd ~/.local/share/hermachy/hermes-safe-executor-v2
+cd ~/.local/share/hermachy/hermes-v0.22.2
 venv/bin/python -c 'from tools.environments.ssh import HERMACHY_CONTROL_VERSION; print(HERMACHY_CONTROL_VERSION)'
 ```
 
@@ -222,9 +222,10 @@ and parser provenance. If you build on Omarchy instead, transfer this complete
 
 ### Use a release archive
 
-Download `hermachy-0.4.3.tar.gz` and its matching `SHA256SUMS` from the
-[release page](https://github.com/kzndk/hermachy/releases/tag/v0.4.3) into the same
-directory on the remote host. From that download directory, verify the archive:
+Build `hermachy-0.5.2.tar.gz` with `python3 scripts/build_release.py --check`
+from this checkout, then transfer it and its matching `SHA256SUMS` from
+`dist/release/` into the same directory on the remote host. This local version
+has not been published as a GitHub release. Verify the archive:
 
 ```bash
 sha256sum -c SHA256SUMS           # Linux
@@ -235,12 +236,12 @@ After verification succeeds, extract into a new directory and enter it:
 
 ```bash
 mkdir hermachy-release
-tar -xzf hermachy-0.4.3.tar.gz -C hermachy-release
+tar -xzf hermachy-0.5.2.tar.gz -C hermachy-release
 cd hermachy-release
 ```
 
 The release archive puts the executables at its root; it has no `dist/` directory.
-The 0.4.3 archive includes all five executables, `tui/`, the `compat/hermes/`
+The 0.5.2 archive includes all five executables, `tui/`, the `compat/hermes/`
 installer and patch for Step 2, and these docs. Keep those files together while
 completing the installation.
 
@@ -369,8 +370,8 @@ continuing; skip the Taildrop retrieval commands.
 Resolve the exact Hermes source/runtime path:
 
 ```bash
-test -x "$HOME/.local/share/hermachy/hermes-safe-executor-v2/venv/bin/python"
-test -x "$HOME/.local/share/hermachy/hermes-safe-executor-v2/venv/bin/hermes"
+test -x "$HOME/.local/share/hermachy/hermes-v0.22.2/venv/bin/python"
+test -x "$HOME/.local/share/hermachy/hermes-v0.22.2/venv/bin/hermes"
 ```
 
 Then return to the same release directory used in Phase A and install the server endpoint:
@@ -381,7 +382,7 @@ Then return to the same release directory used in Phase A and install the server
   --executor-host OMARCHY_HOST \
   --executor-user OMARCHY_USER \
   --client-public-key ~/Downloads/hermachy-inbox/hermachy_to_morpheus.pub \
-  --hermes-source-root "$HOME/.local/share/hermachy/hermes-safe-executor-v2"
+  --hermes-source-root "$HOME/.local/share/hermachy/hermes-v0.22.2"
 ```
 
 Change `--hermes-source-root` if the checks in Step 2 found a different absolute path. Hermachy derives both capability verification and the TUI launch from that source root's `venv/bin/python`; it does not trust an unrelated `hermes` wrapper on `PATH`.
@@ -425,7 +426,7 @@ Example shape:
 ```json
 {
   "status": "ok",
-  "version": "0.4.3",
+  "version": "0.5.2",
   "studio": {
     "hostname": "remote-hermes-host",
     "profile": "default"
@@ -455,7 +456,7 @@ Do not continue if the host, user, directory, or operating system is wrong.
 
 `"status": "ok"` confirms the transport and execution identity. A desktop warning
 still permits headless work. If `ssh_entrypoint` is missing or false, repeat
-Phase B with the 0.4.3 artifacts. Administration availability checks the
+Phase B with the 0.5.2 artifacts. Administration availability checks the
 authentication path; each privileged command still requires authorization
 through the workstation's desktop. See [desktop and system access](../README.md#desktop-and-system-access).
 
@@ -594,7 +595,7 @@ Upgrade both endpoints and the pinned Hermes runtime as one set:
 
 1. Close active Hermachy clients so their gateways stop and reopened sessions
    load the new runtime.
-2. Build from tag `v0.4.3` or verify and extract its release archive using Step 5.
+2. Build this 0.5.2 source checkout or verify and extract its archive using Step 5.
    Keep all five executables and their matching `tui/` assets together.
 3. Prepare and verify the matching Hermes runtime in a new directory using the
    [pinned runtime upgrade procedure](../compat/hermes/README.md#validation-and-upgrades).

@@ -78,9 +78,11 @@ def build_one(name: str, output_dir: Path) -> Path:
 def build_all(output_dir: Path) -> list[Path]:
     # Ship the renderer with the same parser revision, not just the zipapps.
     assets = {name: (ROOT / "tui" / name).read_bytes()
-              for name in ("entry.mjs", "PROVENANCE.json", "LICENSE")}
+              for name in ("entry.mjs", "PROVENANCE.json", "LICENSE", "activity-emojis.patch", "omarchy-theme.patch")}
     provenance = json.loads(assets["PROVENANCE.json"])
     for name, data in (("entry.mjs", assets["entry.mjs"]),
+                       ("activity-emojis.patch", assets["activity-emojis.patch"]),
+                       ("omarchy-theme.patch", assets["omarchy-theme.patch"]),
                        ("hermes_parser.py", (SOURCE_PACKAGE / "hermes_parser.py").read_bytes())):
         if hashlib.sha256(data).hexdigest() != provenance["assets"][name]:
             raise ValueError(f"TUI provenance checksum mismatch: {name}")
