@@ -7,7 +7,7 @@ ROOT = Path(__file__).resolve().parents[1]
 README = ROOT / "README.md"
 GUIDE = ROOT / "docs" / "OMARCHY_REMOTE_HERMES.md"
 SECURITY = ROOT / "SECURITY.md"
-COMPATIBILITY = ROOT / "compat" / "hermes" / "README.md"
+CHANGELOG = ROOT / "CHANGELOG.md"
 DESIGN = tuple(sorted((ROOT / "docs" / "design").rglob("*.md")))
 
 
@@ -15,6 +15,7 @@ class DocumentationTests(unittest.TestCase):
     def test_public_readme_links_complete_setup_guide(self) -> None:
         text = README.read_text(encoding="utf-8")
         self.assertIn("docs/OMARCHY_REMOTE_HERMES.md", text)
+        self.assertIn("docs/design/SHARED_GATEWAY_0.6.md", text)
         self.assertIn("https://github.com/kzndk/hermachy", text)
         self.assertIn("public pre-alpha and fail-closed", text)
 
@@ -29,19 +30,31 @@ class DocumentationTests(unittest.TestCase):
             "hermachy --resume",
             "revoke --side studio",
             "revoke --side omarchy",
-            "HERMACHY_CONTROL_VERSION",
-            "TERMINAL_SYNC_REMOTE_STATE=false",
+            "plugins enable hermachy",
+            "hermes gateway restart",
+            "hermachy_ssh",
+            "hermes_host",
+            "--hermes-command",
         )
         for value in required:
             with self.subTest(value=value):
                 self.assertIn(value, text)
-        self.assertIn("venv/bin/hermes", text)
-        self.assertNotIn("--hermes-command", text)
+        # 0.5.x's patched runtime and its installer no longer exist.
+        obsolete = (
+            "compat/hermes",
+            "HERMACHY_CONTROL_VERSION",
+            "TERMINAL_SYNC_REMOTE_STATE",
+            "venv/bin/hermes",
+            "prepare.py",
+        )
+        for value in obsolete:
+            with self.subTest(value=value):
+                self.assertNotIn(value, text)
         self.assertIn("future Omarchy authentication", text)
         self.assertIn("do **not** terminate already-authenticated", text)
 
     def test_relative_markdown_links_resolve(self) -> None:
-        for source in (README, GUIDE, SECURITY, COMPATIBILITY, *DESIGN):
+        for source in (README, GUIDE, SECURITY, CHANGELOG, *DESIGN):
             text = source.read_text(encoding="utf-8")
             for target in re.findall(r"\[[^]]+\]\(([^)]+)\)", text):
                 if target.startswith(("http://", "https://", "#", "mailto:")):
@@ -52,7 +65,7 @@ class DocumentationTests(unittest.TestCase):
 
     def test_public_docs_do_not_contain_private_machine_examples(self) -> None:
         text = "\n".join(
-            path.read_text(encoding="utf-8") for path in (README, GUIDE, SECURITY, COMPATIBILITY, *DESIGN)
+            path.read_text(encoding="utf-8") for path in (README, GUIDE, SECURITY, CHANGELOG, *DESIGN)
         )
         forbidden = (
             "/Users/ulrichslothuus",

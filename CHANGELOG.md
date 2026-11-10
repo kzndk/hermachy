@@ -1,5 +1,65 @@
 # Changelog
 
+## 0.6.0 — 2026-11-10
+
+Hermachy now runs in the remote host's default Hermes profile on stock Hermes
+v0.23.1 or later, sharing its chats with Hermes Desktop and the other surfaces.
+
+- Require stock Hermes Agent v0.23.1 or later on the remote host, with the
+  default profile's gateway running as its normal service. Hermes 0.23 allows one
+  gateway per profile and its TUI attaches over a ticketed WebSocket, so the
+  patched runtime, safe-executor v2 patch, `compat/hermes/` installer, and pinned
+  `hermes-v*` runtime directory are removed.
+- Share chats, memory, skills, and the session list with the profile's other
+  surfaces. A new Hermachy plugin routes only chats that Hermachy created or
+  resumed to Omarchy: their terminal, process, file, and code tools run over the
+  dedicated execution key with strict host keys and no state sync or environment
+  passthrough. A binding belongs to the chat, so a Hermachy chat continued in
+  Desktop still runs on Omarchy. Other chats are untouched.
+- Replace the terminal tool's `target` parameter with a `hermes_host` tool in
+  new Hermachy chats. Chats started under 0.5.x keep working: their
+  `terminal(target="hermes")` still runs on the host and `target="omarchy"` on the
+  workstation. Refuse a tool call whose route cannot be established, and mark
+  results after SSH loss or timeout `hermachy_outcome_unknown`; they are never
+  re-run automatically.
+- Refuse to attach unless the running gateway loaded the Hermachy plugin of the
+  same version (checked with `plugins.list` on every attach and by the doctor), so
+  a gateway that was not restarted can never run a Hermachy chat on the host.
+- Add Omarchy project instructions and routing rules to Hermachy chats as a prompt
+  section of up to 4000 characters, read with `hermachy-exec --context-files`.
+- Connect the local TUI through a loopback WebSocket relay. Each (re)dial opens one
+  restricted SSH channel to a bridge that attaches to the gateway with a
+  single-use ticket. The bridge forwards only methods the pinned Hermes declares,
+  refuses host execution, host file and path reads, workspace and profile changes,
+  and bypass sessions, and rewrites `session.create`. Inline image previews,
+  `@path` completion, and host file attachments are unavailable; images from
+  Omarchy are uploaded as bytes.
+- Move to protocol v2 (`hermachy-v2`) and refuse 0.5.x clients with an upgrade
+  message. Remove `hermachy-gateway`: the release has four executables, `tui/`,
+  and `plugin/hermachy/`. The client key's forced command no longer allows a PTY.
+- `studio-finish` installs and enables the plugin, keeps its toolset on the
+  `cli` platform only (Hermachy sessions use it; messaging surfaces never see
+  `hermes_host`), and takes `--hermes-command` and `--hermes-home` instead of
+  `--hermes-source-root`. `hermachy --doctor` checks
+  the host's Hermes version, a real attach to the gateway, and the installed and
+  enabled plugin version. The client refuses a host with a different Hermachy
+  version or transport.
+- Pass Hermes launch options such as `--model`, `--provider`, `--skills`, and
+  `--reasoning` to new chats; refuse `--safe-mode` and `--ignore-user-config`.
+  `--continue` prefers the latest Hermachy chat for the current Omarchy directory.
+- Update the native TUI and CLI parser to Hermes v0.23.1 (`3b421578`), built with
+  Hermes's pinned pnpm, keeping the activity-emoji and Omarchy-theme patches.
+
+### Upgrade to 0.6.0
+
+Update the remote host's main Hermes installation to v0.23.1 or later first. Then
+install 0.6.0 on both machines: re-run `omarchy-install` on Omarchy and
+`studio-finish` with its new arguments on the remote host, restart the gateway
+once with `hermes gateway restart`, and run `hermachy --doctor`. The 0.5.x
+`~/.local/share/hermachy/hermes-v*` runtimes are no longer used; remove them after
+verification, keeping one with the 0.5.2 executables if you may roll back. See the
+[upgrade guide](docs/OMARCHY_REMOTE_HERMES.md#14-upgrade).
+
 ## 0.5.2 — 2026-10-19 (local build)
 
 - Update the Hermes runtime, native TUI, and CLI parser to stable v0.22.2.

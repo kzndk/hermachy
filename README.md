@@ -9,38 +9,40 @@ Hermachy connects two machines over Tailscale and OpenSSH:
 
 ```text
 Omarchy workstation
-  `hermachy` client + native TUI
-       │  SSH JSON-RPC over Tailscale
+  `hermachy` client + native TUI + loopback relay
+       │  restricted SSH channel over Tailscale (forced command)
        ▼
 Remote Hermes host
-  persistent gateway + Hermes Agent + remote execution
+  hermachy-server bridge ──► default profile's shared Hermes gateway
   memory, skills, sessions, models, credentials
+  Hermachy plugin: routes the tools of Hermachy chats
        │  dedicated SSH execution connection
        ▼
 Omarchy workstation
-  terminal, files, patches, searches, builds, code execution
+  terminal, processes, files, patches, searches, builds, code execution
 ```
 
-The remote host remains the authoritative Hermes “brain.” The agent can choose Omarchy or the Hermes host for each command. Hermachy does not clone a Hermes profile or replace the Hermes TUI. The current pre-alpha launches the remote Hermes `default` profile; do not give an untrusted workstation access to a sensitive profile.
+The remote host remains the authoritative Hermes “brain.” Hermachy chats live in the remote host's **default profile**: the same chats, memory, skills, and session list as Hermes Desktop and the profile's other surfaces. Only chats that Hermachy created or resumed are bound to Omarchy. Their terminal, process, file, and code tools run there, and the agent can choose the `hermes_host` tool to run a command on the Hermes host. Unbound chats behave exactly as without Hermachy. Hermachy does not clone a Hermes profile or replace the Hermes TUI. Do not give an untrusted workstation access to a sensitive profile.
 
 > [!IMPORTANT]
-> **Current status: public pre-alpha and fail-closed.** Install the [pinned compatible Hermes runtime](compat/hermes/README.md): a public upstream commit plus the complete **safe-executor capability v2** patch included here. Stock builds without this contract are rejected before the TUI starts. See [Hermes compatibility](#hermes-compatibility).
+> **Current status: public pre-alpha and fail-closed.** Hermachy 0.6.0 requires stock Hermes Agent **v0.23.1 or later** on the remote host, with the default profile's gateway running as its normal service. It installs a Hermachy plugin into that profile; no patched Hermes runtime is used. A tool call of a Hermachy chat whose Omarchy route cannot be established is refused and never falls back to the host. See [Hermes compatibility](#hermes-compatibility).
 
 ## What stays where
 
 | Capability or data | Remote Hermes host | Omarchy |
 |---|:---:|:---:|
 | Native Hermes TUI renderer | — | ✓ |
-| Hermes gateway and agent loop | ✓ | — |
+| Hermes gateway, agent loop, and Hermachy plugin | ✓ | — |
 | Models and provider credentials | ✓ | — |
 | Memory, skills, sessions, and profile state | ✓ | — |
-| Shell commands and installed CLI tools | ✓ | ✓ |
-| Native file and code tools | — | ✓ |
+| Hermachy session bindings | ✓ | — |
+| Shell commands and installed CLI tools | ✓ (`hermes_host`) | ✓ |
+| Terminal, process, file, and code tools of Hermachy chats | — | ✓ |
 | File operations, builds and code through shell/Python commands | ✓ | ✓ |
 | Hermachy client key | public key only | private key |
 | Hermachy execution key | private key | public key only |
 
-Hermachy does not configure passwordless `sudo`, Tailscale Funnel, or a public Internet listener.
+Hermachy does not configure passwordless `sudo`, Tailscale Funnel, or a public Internet listener. The client's only listener is a loopback relay on Omarchy.
 
 ## Start here
 
@@ -51,77 +53,94 @@ The complete setup guide covers prerequisites, Tailscale/SSH preparation, the tw
 Quick outline:
 
 1. Install Tailscale, OpenSSH, Git, Python 3.9+, and Node.js on Omarchy.
-2. [Install the pinned Hermes runtime](compat/hermes/README.md) and configure it on the remote host (Hermes uses Python 3.14).
-3. Build or download Hermachy’s five standalone zipapps and bundled native TUI.
+2. Install and configure Hermes Agent v0.23.1 or later on the remote host, with the default profile's gateway running as a service.
+3. Build Hermachy's four standalone zipapps, bundled native TUI, and Hermes plugin, or verify a release archive.
 4. Run `hermachy-admin studio-prepare` on the remote host.
 5. Run `hermachy-admin omarchy-install` on Omarchy.
-6. Run `hermachy-admin studio-finish` on the remote host.
+6. Run `hermachy-admin studio-finish` on the remote host, then restart its gateway once with `hermes gateway restart`.
 7. Run `hermachy --doctor`, then launch `hermachy` from an Omarchy project directory.
 
 ## Build
 
-Version **0.5.2** updates the runtime and native TUI to Hermes **0.22.2**,
-with Omarchy themes, project instructions, and explicit execution targets. See [release notes](CHANGELOG.md).
+Version **0.6.0** moves Hermachy onto the shared gateway of Hermes **0.23.1**:
+Hermachy chats live in the host's default profile, and a Hermes plugin routes
+their tools to Omarchy. See [release notes](CHANGELOG.md) and the
+[0.6 design note](docs/design/SHARED_GATEWAY_0.6.md) for the architecture and
+the reasons for it.
 
 ```bash
-# From this 0.5.2 source checkout:
+# From this 0.6.0 source checkout:
 python3 scripts/build_zipapps.py
 ```
 
-The build produces five Python zipapps that use the standard library, plus the
-bundled renderer:
+The build produces four Python zipapps that use the standard library, plus the
+bundled renderer and the Hermes plugin:
 
 ```text
-dist/hermachy          # Omarchy client
-dist/hermachy-server   # forced-command endpoint on the remote Hermes host
+dist/hermachy          # Omarchy client, native TUI launcher, and loopback relay
+dist/hermachy-server   # forced-command bridge on the remote Hermes host
 dist/hermachy-admin    # install and revoke utility
-dist/hermachy-gateway  # local stdio-to-SSH transport
 dist/hermachy-exec     # workstation SSH entry point and graphical administration
-dist/tui/              # renderer, provenance, and license
+dist/tui/              # renderer, clipboard helper, patches, provenance, and license
+dist/plugin/hermachy/  # Hermes plugin for the remote host's default profile
 ```
 
 Python 3.9 or newer is required. The Omarchy client also requires Node.js.
-The build verifies the bundled renderer and parser against `tui/PROVENANCE.json`.
+The build verifies the bundled renderer, clipboard helper, patches, and parser
+against `tui/PROVENANCE.json`.
 
 The renderer and parser are vendored from Hermes
-[`d923a5eb487a17c0a68801bba9ef0f56c81040a8`](https://github.com/NousResearch/hermes-agent/commit/d923a5eb487a17c0a68801bba9ef0f56c81040a8)
-(Hermes 0.22.2, release `v0.22.2`). The renderer includes Hermachy's
+[`3b421578588243f920886e6fe79a6faa87ea026e`](https://github.com/NousResearch/hermes-agent/commit/3b421578588243f920886e6fe79a6faa87ea026e)
+(Hermes 0.23.1, release `v0.23.1`). The renderer includes Hermachy's
 [activity emoji patch](tui/activity-emojis.patch), which adds the familiar tool icons
 to skill, browser, terminal, and other activity labels. Gateway-supplied connector
 labels keep their own icons. The [Omarchy theme patch](tui/omarchy-theme.patch)
 makes the local renderer follow the workstation's active palette. To rebuild,
 apply both patches to that Hermes revision with
-`git apply /path/to/hermachy/tui/activity-emojis.patch /path/to/hermachy/tui/omarchy-theme.patch`,
-install dependencies with the upstream lockfile (`npm ci`), and run
-`npm run build --workspace ui-tui`.
-Copy `ui-tui/dist/entry.js` to Hermachy's `tui/entry.mjs` and refresh its SHA-256 in
-`tui/PROVENANCE.json`. Both patch checksums are also recorded and checked at build time.
-`hermes_cli/_parser.py` is copied verbatim.
-The renderer, parser, and safe-executor runtime now use the same release. The
-standalone client adapts the parser’s config-path help to describe the remote
-profile. Upgrade both endpoints and the runtime together using the pinned recipe.
+`git apply /path/to/hermachy/tui/activity-emojis.patch /path/to/hermachy/tui/omarchy-theme.patch`.
+Then build with Hermes's pinned pnpm 12.15.0 (upstream no longer supports `npm ci`):
 
-The local build produces `hermachy-0.5.2.tar.gz` with all five executables, the required `tui/`
-assets, and the Hermes compatibility patch, installer, manifest, and setup docs.
-Transfer its matching `SHA256SUMS`, verify it with
+```bash
+source ./activate
+pnpm install --frozen-lockfile --filter 'hermes-tui...'
+cd ui-tui && pnpm run build
+```
+
+Copy `ui-tui/dist/entry.js` to Hermachy's `tui/entry.mjs`,
+`ui-tui/scripts/clipboard_image.py` to `tui/scripts/clipboard_image.py`, and
+`hermes_cli/_parser.py` verbatim to `src/hermachy/hermes_parser.py`. Refresh their
+SHA-256 values in `tui/PROVENANCE.json`. Both patch checksums are also recorded and
+checked at build time. The standalone client adapts the parser’s config-path help
+to describe the remote profile.
+
+The bridge forwards only gateway methods declared by the same Hermes revision.
+When moving to another revision, regenerate `src/hermachy/attach_methods.py` with
+`python3 scripts/update_attach_methods.py /path/to/hermes-agent` and review the
+bridge policy in `src/hermachy/attach_policy.py` for every new method. The
+renderer, parser, and bridge allowlist use the same release. Upgrade the client,
+server, and plugin together.
+
+The release build produces `hermachy-0.6.0.tar.gz` with all four executables, the
+required `tui/` assets, the `plugin/hermachy/` plugin, `release-sha256.json`, and
+the setup docs. Transfer its matching `SHA256SUMS`, verify it with
 `sha256sum -c SHA256SUMS` on Linux or `shasum -a 256 -c SHA256SUMS` on macOS, then
 follow the [archive installation steps](docs/OMARCHY_REMOTE_HERMES.md#5-prepare-the-hermachy-release-directory).
-Keep the executables and `tui/` together until the installer copies them into
-their installed locations.
+Keep the executables, `tui/`, and `plugin/` together until the installer copies
+them into their installed locations.
 
-To build a bundle from the current source and verify the committed runtime hashes:
+To build a bundle from the current source and verify the committed release hashes:
 
 ```bash
 python3 scripts/build_release.py --check
 ```
 
-Maintainers run it without `--check` after changing the Python runtime to refresh
-`release-sha256.json`. The versioned archive and `SHA256SUMS` are written to
-`dist/release/`.
+Maintainers run it without `--check` after changing any shipped file (Python
+sources, renderer assets, or plugin) to refresh `release-sha256.json`. The
+versioned archive and `SHA256SUMS` are written to `dist/release/`.
 
 The archive is deterministic for the same source tree. A later commit can
 produce a different archive with the same version label; keep the matching
-source and checksums. Version 0.5.2 has not been published as a GitHub release.
+source and checksums.
 
 ## Use
 
@@ -145,15 +164,42 @@ hermachy --resume "session-id-or-title"
 hermachy --cwd /absolute/omarchy/path
 ```
 
-The native TUI renders locally; the remote Hermes gateway owns the agent and sessions. The supplied Omarchy directory is the execution working directory. Startup checks the remote runtime and executor before launching the renderer.
+The native TUI renders locally and dials a loopback relay that `hermachy` starts
+on `127.0.0.1` (ephemeral port, secret path). Each dial becomes one restricted SSH
+channel to the host's bridge, which attaches to the default profile's running
+gateway. The supplied Omarchy directory is the chat's execution working directory.
+Startup checks the host's Hermes gateway and plugin and the Omarchy executor
+before launching the renderer. It refuses a host that reports a different
+Hermachy version or transport.
+
+`hermachy --continue` picks the most recent Hermachy chat bound to the same
+Omarchy directory, falling back to the profile's most recent chat.
+`--continue "name"` and `--resume SELECTOR` resolve a title or session ID through
+the host. Resuming any chat of the profile in Hermachy binds it to the current
+Omarchy directory.
+
+Hermes launch options ride the local TUI environment and apply to new chats:
+`--model`, `--provider`, `--toolsets`, `--skills`, `--max-turns`, `--yolo`, `--checkpoints`,
+`--accept-hooks`, `--pass-session-id`, `--ignore-rules`, `--verbose`, and
+`--quiet`. `--reasoning` is added to new chats. `--safe-mode` and
+`--ignore-user-config` are refused: those sessions skip plugins, and with them
+the workstation route.
+
+Inline image previews, `@path` completion, and host file attachments are
+unavailable in Hermachy: they would read paths on the Hermes host. Images from
+Omarchy (`--image`, a dropped image path, or a pasted clipboard image) are
+uploaded as bytes instead.
 
 Project instructions (`.hermes.md`, inherited `AGENTS.md`, `CLAUDE.md`, and
-Cursor rules) are read from that Omarchy workspace, including for subagents.
-They use Hermes's normal priority, scanning, and size limits. A missing workspace
-or connection never falls back to the Hermes installation's developer guide.
-`SOUL.md`, memory, and skills continue to come from the remote Hermes profile.
-After upgrading, reopen Hermachy and start a new chat to rebuild the prompt;
-existing conversations keep their cached instructions.
+Cursor rules) are read from that Omarchy workspace with
+`hermachy-exec --context-files`. They follow Hermes's normal priority and scanning
+and are added to Hermachy chats in a prompt section with the routing rules,
+capped at 4000 characters in total; longer instructions are truncated with a
+note to read the rest on the workstation. The chat's host-side working
+directory is an empty Hermachy workspace marker, not a project. `SOUL.md`,
+memory, and skills continue to come from the remote Hermes profile. After
+upgrading, reopen Hermachy and start a new chat to rebuild the prompt; existing
+conversations keep their cached instructions.
 
 Tool activity shows emojis such as 📚 for skills, 🌐 for browser navigation,
 💻 for terminal commands, and 🔍 for web searches. They appear while a call is
@@ -170,28 +216,40 @@ palette, the normal Hermes skin applies.
 ### Connection recovery and execution targets
 
 Both SSH legs send keepalives every 15 seconds and detect an unresponsive peer
-after three unanswered probes. The local gateway reconnects automatically with
-backoff up to 15 seconds. A private supervisor keeps the same remote agent alive
-for up to one hour without a client attachment. Its acknowledged stream resumes
-input and output without executing a submitted RPC twice. Buffers apply
-backpressure when full. No additional TCP listener is opened.
+after three unanswered probes. When the client's channel drops, the TUI redials
+the loopback relay by itself. Each redial opens a fresh SSH channel and a new
+single-use gateway ticket and keeps the same connection ID, so the chat stays
+bound to the same Omarchy directory. The only new TCP listener is the client's
+loopback relay.
 
-The native terminal tool exposes the execution target directly. The agent supplies
-`target="omarchy"` or `target="hermes"` for each command. For example, ask it to
-inspect your Omarchy desktop, run local project tests, or check services and files
-on the Hermes host. Remote commands use the Hermes user's home by default; an
-explicit `workdir` belongs to the chosen machine. Each result identifies its
-target. The Hermes target supports foreground commands up to 300 seconds and uses Hermes
-command approvals. Omarchy retains native background/process support. Native file/code tools retain their Omarchy route; remote
-file operations and code run through shell commands on the Hermes target.
+Chats live in the shared gateway, not in the client. Closing the TUI ends only its
+SSH channel and bridge; the gateway keeps running for the profile's other
+surfaces. After a gateway restart or a remote reboot, reopen the chat with
+`hermachy --continue` or `hermachy --resume`.
 
-Closing the TUI deliberately shuts down its gateway. A remote reboot or gateway
-crash requires resuming the saved session with `hermachy --continue`; automatic
-transport recovery does not replay commands into a replacement agent. An
-interrupted Omarchy execution SSH connection can leave a command's outcome
-uncertain; the agent must inspect its result before retrying it. Execution
-exceptions do not enter Hermes's automatic command retry loop. Upgrade both
-Hermachy endpoints together to 0.5.2 and use the matching Hermes runtime.
+In a Hermachy chat, the terminal, process, file (`read_file`, `write_file`,
+`patch`, `search_files`), and `execute_code` tools run on Omarchy, starting in the
+launch directory. For example, ask the agent to inspect your Omarchy desktop or
+run local project tests. The `hermes_host` tool runs a foreground shell command on
+the Hermes host instead, for example to check services and files there. It
+replaces 0.5.x's `target` parameter and exists only in Hermachy chats. Host
+commands run as the remote Hermes user with Hermes command approvals, for up to
+300 seconds; `workdir` must be an absolute host path and defaults to the Hermes
+user's home. Each `hermes_host` result identifies its target. Remote file
+operations and code run through `hermes_host` shell commands.
+
+A binding belongs to the chat, not to the window: a Hermachy chat continued in
+Hermes Desktop or another surface still runs its tools on Omarchy. Chats that
+Hermachy never created or resumed are untouched.
+
+Routing fails closed. If a Hermachy chat's binding, server configuration, or
+execution key is missing or invalid, or the workstation environment cannot be
+opened, the tool call returns an error and nothing runs; there is no fallback to
+the other machine. An interrupted or timed-out Omarchy execution SSH connection
+returns a result marked `hermachy_outcome_unknown`: the command's outcome is
+uncertain, and the agent must inspect its result before retrying it. Such results
+never enter Hermes's automatic command retry loop. Upgrade the Hermachy client,
+server, and plugin together to 0.6.0, on Hermes v0.23.1 or later.
 
 ### Desktop and system access
 
@@ -220,50 +278,60 @@ the new entry point.
 
 ## Hermes compatibility
 
-The supported recipe is Hermes **0.22.2** ([stable release `v0.22.2`](https://github.com/NousResearch/hermes-agent/releases/tag/v0.22.2)),
-[`d923a5eb487a17c0a68801bba9ef0f56c81040a8`](https://github.com/NousResearch/hermes-agent/commit/d923a5eb487a17c0a68801bba9ef0f56c81040a8)
-with the bundled [safe-executor v2 patch](compat/hermes/safe-executor-v2.patch).
-The [compatibility manifest](compat/hermes/manifest.json) pins the patch SHA-256
-and resulting Git tree. No private fork is required.
+Hermachy 0.6.0 supports stock, unpatched Hermes Agent **v0.23.1 or later**
+([release `v0.23.1`](https://github.com/NousResearch/hermes-agent/releases/tag/v0.23.1),
+[`3b421578588243f920886e6fe79a6faa87ea026e`](https://github.com/NousResearch/hermes-agent/commit/3b421578588243f920886e6fe79a6faa87ea026e))
+on the remote host. No private fork or patch is required.
 
-On the remote host, from this checkout, start with:
+Hermes 0.23 allows only one gateway per profile, and its Ink TUI attaches to that
+gateway over a ticketed WebSocket. Hermachy 0.5.x's private, patched runtime
+(safe-executor v2) cannot run under that model and has been removed. The 0.5.2
+runtime recipe and its guide remain in the repository history at commit
+`bedb4ad`.
 
-```bash
-python3 compat/hermes/prepare.py "$HOME/.local/share/hermachy/hermes-v0.22.2"
-```
+Hermachy 0.6 instead attaches to the default profile's running gateway and
+enforces its boundary in two places:
 
-Then follow the [runtime installation steps](compat/hermes/README.md) to install
-locked dependencies into `venv/`, configure your provider, and verify the source
-and capability. Keep this source pinned; arbitrary Hermes updates are not a
-supported upgrade path.
+- the forced-command bridge, `hermachy-server`, forwards only allowed gateway
+  methods and rewrites `session.create`; and
+- the Hermachy plugin in the default profile routes the tools of bound chats to
+  Omarchy and fails closed.
 
-Hermachy requires this Python module constant in the remote Hermes runtime:
+[SECURITY.md](SECURITY.md) describes both.
 
-```python
-from tools.environments.ssh import HERMACHY_CONTROL_VERSION
-assert HERMACHY_CONTROL_VERSION == "2"
-```
+The remote host must provide:
 
-It is not an environment variable to set during installation.
+- Hermes v0.23.1 or later as its main installation; the plugin needs the
+  terminal-environment provider hook that v0.23.1 introduced;
+- the default profile's gateway running as its normal launchd or systemd
+  service; the bridge discovers it with `hermes --profile default gateway attach --json`
+  and never starts a gateway under sshd;
+- the Hermachy plugin installed in `<hermes home>/plugins/hermachy` at the same
+  version as the client and server, enabled with
+  `hermes plugins enable hermachy --no-allow-tool-override`, and loaded by
+  restarting the gateway once.
 
-Capability v2 includes the local TUI gateway contract and preserves the v1 execution boundary. It is a behavioral contract, not merely a constant. It must guarantee that:
+`hermachy --doctor` checks the local TUI bundle and Node.js; on the host,
+`hermes --version`, a real attach and `ping` to the default profile's gateway, and
+the installed and enabled plugin version; and the Omarchy executor's SSH identity,
+Linux operating system, requested working directory, and desktop access. These
+checks do not show which plugins the running gateway has loaded. After installing
+or upgrading the plugin, restart the gateway and
+[verify the execution location](docs/OMARCHY_REMOTE_HERMES.md#11-verify-execution-location).
+If a check fails, Hermachy exits safely.
 
-- the process-scoped Hermachy route overrides persistent terminal configuration;
-- terminal, file, and code-execution tools use the same Omarchy SSH route;
-- remote profile/credential/skill/cache synchronization is disabled;
-- sync-back is disabled;
-- only Hermachy’s dedicated execution identity is used;
-- capability probing and TUI launch use the same pinned Hermes venv and source tree;
-- unsafe or malformed routing fails closed.
-
-`hermachy-server` verifies that the installed Hermes runtime declares capability v2 before launch. `hermachy --doctor` then reports the remote host identity, profile, and Hermes version, and validates the Omarchy executor's SSH identity, Linux operating system, and requested working directory. These runtime checks do not independently prove the capability's internal implementation; use the pinned recipe and its contract tests above. If the marker or endpoint checks fail, Hermachy exits safely.
+Treat the client, server, plugin, and the host's Hermes version as one
+compatibility set. After a `hermes update` on the host that changes the gateway
+protocol, Hermachy refuses to attach until a matching Hermachy release is
+installed. Gateway methods added by a newer Hermes stay refused until a Hermachy
+release reviews them.
 
 ## Security
 
 Read [SECURITY.md](SECURITY.md) before installation. The important trust decision is that:
 
-- the Omarchy client key can start the configured remote Hermes profile; and
-- the remote execution key can run non-interactive commands as the normal Omarchy user.
+- the Omarchy client key can use the remote host's default Hermes profile, including its chats, memory, skills, and agent, and run approved commands on the host through `hermes_host`; and
+- the remote execution key, which the Hermachy plugin uses inside the shared gateway process, can run non-interactive commands as the normal Omarchy user.
 
 Both keys are dedicated Ed25519 identities. The client ignores ambient SSH configuration with `ssh -F /dev/null`, uses a forced command on the remote host, disables forwarding, and never grants passwordless sudo.
 
@@ -277,7 +345,7 @@ hermachy-admin revoke --side studio
 hermachy-admin revoke --side omarchy
 ```
 
-After revoking both sides, close every active Hermachy TUI and terminate its linked Hermes and SSH processes before treating access as stopped. See [SECURITY.md](SECURITY.md) for the active-session procedure.
+Bound chats stay bound. Until the Omarchy side is revoked, a Hermachy chat continued from another surface of the profile still runs its tools on Omarchy. After revoking both sides, close every active Hermachy TUI and terminate its linked bridge and SSH processes before treating access as stopped. See [SECURITY.md](SECURITY.md) for the active-session procedure.
 
 ## Development
 
@@ -288,6 +356,15 @@ python3 scripts/build_zipapps.py
 ./dist/hermachy --version
 ./dist/hermachy-server --version
 ./dist/hermachy-admin --help
+./dist/hermachy-exec --version
+```
+
+The plugin tests in `tests/integration/` need a Hermes v0.23.1 or later source
+checkout with its built `venv/`:
+
+```bash
+PYTHONPATH=src:/path/to/hermes-agent /path/to/hermes-agent/venv/bin/python \
+  -m unittest discover -s tests/integration -v
 ```
 
 ## Project

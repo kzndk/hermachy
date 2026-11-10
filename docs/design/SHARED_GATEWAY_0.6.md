@@ -1,8 +1,11 @@
 # Hermachy 0.6 design: run in the default profile's shared Hermes gateway
 
-**Status:** proposal, not implemented. Hermachy 0.5.2 with its pinned Hermes
-v0.22.2 runtime remains the supported release. Nothing in this document is
-deployed.
+**Status:** implemented in Hermachy 0.6.0. This document records the design and
+the constraints it was derived from; the code is authoritative where they differ.
+In particular, the Omarchy relay lives inside the `hermachy` client (0.5.x's
+`hermachy-gateway` executable was removed), the bridge checks on every attach
+that the running gateway loaded the plugin (`plugins.list`), and the plugin also
+honours 0.5.x's `terminal(target="hermes"|"omarchy")` in chats started before 0.6.
 
 **Requirement:** Hermachy sessions live in the Hermes host's **default
 profile**. They share chats, memory, skills and session history with every
@@ -102,7 +105,7 @@ Omarchy                                   SSH (restricted key)          Hermes h
 hermachy ──▶ Ink TUI (pinned bundle)
              │ HERMES_TUI_GATEWAY_URL=ws://127.0.0.1:<port>/<token>
              ▼
-        hermachy-gateway: loopback WS ⇄ lines ═══════════▶ hermachy-server (forced command)
+        hermachy relay:  loopback WS ⇄ lines ═══════════▶ hermachy-server (forced command)
                                                               • mints a ticket per dial
                                                               • dials ws://127.0.0.1:<api>/api/ws
                                                               • RPC allowlist + session.create rewrite
@@ -119,7 +122,7 @@ hermachy ──▶ Ink TUI (pinned bundle)
 ### 5.1 Omarchy: client and loopback relay
 
 `hermachy` launches the bundled TUI with `HERMES_TUI_GATEWAY_URL`. That URL points at a WebSocket
-listener inside `hermachy-gateway`:
+listener inside the `hermachy` client process:
 
 - pure stdlib, RFC 6455;
 - bound to `127.0.0.1` on an ephemeral port, with an unguessable path token;
