@@ -1,0 +1,3 @@
+name: hermachy_poc
+version: 0.0.1
+description: "Sandbox proof: per-session terminal routing via tool_execution middleware"

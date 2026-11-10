@@ -1,0 +1,5 @@
+terminal:
+  backend: local
+plugins:
+  enabled:
+    - hermachy_poc

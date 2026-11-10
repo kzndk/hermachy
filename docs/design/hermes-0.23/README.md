@@ -30,3 +30,21 @@ Why the port alone does not work:
 - The stdio gateway entry refuses to start while the profile's gateway holds
   `gateway.lock`.
 - The v0.23 TUI only dials a WebSocket.
+
+## Sandbox proof of per-session routing (`poc-plugin/`)
+
+A throwaway plugin for the [0.6 design](../SHARED_GATEWAY_0.6.md#41-sandbox-proof-v0231-linux).
+It registers a stand-in `hermachy_ssh` provider and a `tool_execution`
+middleware that routes one bound session. To reproduce it, copy
+`hermachy_poc/` into `<sandbox HERMES_HOME>/plugins/` along with `config.yaml`.
+Then, from a v0.23.1 checkout with a built `venv/`, run:
+
+```bash
+HERMES_HOME=<sandbox> POC_WORKSTATION_CWD=<some dir> venv/bin/python driver.py
+```
+
+Expected output: the bound session's commands are prefixed
+`[routed:hermachy_ssh]` and run in the workstation directory. The other session
+stays on `LocalEnvironment`. `driver_files_and_cache.py` shows that file tools
+follow the route, and that a session cached locally before binding keeps its
+local environment. That is why the design requires a cache guard.
